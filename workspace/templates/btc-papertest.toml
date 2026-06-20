@@ -1,0 +1,13 @@
+[runtime]
+bot_id = 2
+mode = "papertest"
+max_loop = 20
+loop_seconds = 5.0
+log_file = "workspace/logs/btc-papertest.log"
+
+[market]
+symbol = "BTC"
+interval = "1m"
+
+[exchange]
+network = "mainnet"

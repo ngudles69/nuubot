@@ -1,0 +1,17 @@
+[runtime]
+bot_id = 1
+mode = "backtest"
+max_loop = 200
+loop_seconds = 0.0
+log_file = "workspace/logs/btc-backtest.log"
+
+[market]
+symbol = "BTCUSDT"
+interval = "1m"
+
+[data]
+dir = "workspace/data/binance/raw/spot/monthly/klines"
+
+[backtest]
+start = "2025-01-01"
+stop = "2025-01-03"
