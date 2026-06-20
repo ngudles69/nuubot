@@ -22,3 +22,5 @@ tags: [architecture, stack, repo]
 ### folders
 
 ## decisions
+
+Bot runtime design lives under [design](design/overview.md).

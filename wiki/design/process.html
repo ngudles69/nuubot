@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nuubot component map</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "default" });
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.45; }
+    h1 { font-size: 1.5rem; }
+    .mermaid { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>nuubot component map</h1>
+  <pre class="mermaid">
+flowchart LR
+  Frontend[Frontend / CLI]
+  Command[CommandServer]
+  HL[Hyperliquid]
+  Data[ExchangeData]
+  Account[ExchangeAccount]
+  Meta[ExchangeMeta]
+  Bot[Bot Runtime]
+  Clock[Clock]
+  Signaler[Signaler]
+  Risk[Risk]
+  Executor[Executor]
+  State[Position / Order / Fill]
+  Simulator[Simulator]
+  Datastore[Datastore]
+  RuntimeDb[(runtime db)]
+  SweepsDb[(sweeps db)]
+  Workspace[workspace]
+  Binance[workspace/data/binance]
+
+  subgraph Runtime[Bot Runtime Box]
+    Bot
+    Clock
+    Signaler
+    Risk
+    Executor
+    State
+  end
+
+  Frontend -- commands --> Command
+  Command -- command flags --> Bot
+  Frontend -- read views --> Datastore
+
+  HL -- websocket bbo/bars --> Data
+  HL -- account/order/fill API --> Account
+  Data -- market snapshot --> Bot
+  Meta -- precision/min size --> Account
+  Bot -- score request --> Risk
+  Bot -- signal request --> Signaler
+  Bot -- loop_once/start --> Executor
+  Executor -- submit/cancel/close --> Account
+  Account -- normalized evidence --> State
+  State -- insert/select/update/delete --> Datastore
+  Bot -- botrun/events --> Datastore
+
+  Simulator -. simulated fills/events .-> Account
+  Binance -. historical bars/bbo .-> Data
+
+  Datastore --> RuntimeDb
+  Datastore --> SweepsDb
+  Workspace --> Binance
+  Workspace --> Logs[logs]
+  Workspace --> Config[config]
+  Workspace --> Cache[cache]
+  </pre>
+</body>
+</html>
