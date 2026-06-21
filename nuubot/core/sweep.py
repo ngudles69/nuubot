@@ -11,7 +11,8 @@ from typing import Any
 from nuubot.core.config import load_sweep_config
 from nuubot.core.logger import logger
 from nuubot.core.models.mconfig import BotrunConfig
-from nuubot.core.runtime import Runtime, load_binance_bars, required
+from nuubot.core.market_data import load_binance_bars, required
+from nuubot.core.runtime import Runtime
 from nuubot.executor.tradebot import ExecutorTrade, TradeConfig
 from nuubot.signaler.emacross import SignalerEmaCross
 

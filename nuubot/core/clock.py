@@ -90,7 +90,12 @@ class ReplayClock(Clock):
         super().__init__(min_timer_interval_ms)
         self._now_ms = 0
 
-    async def advance_and_dispatch(self, now_ms: int) -> list[TimeEvent]:
+    def set_time(self, now_ms: int) -> None:
+        if now_ms < self._now_ms:
+            raise ValueError(f"clock cannot go backwards: {now_ms} < {self._now_ms}")
+        self._now_ms = now_ms
+
+    async def dispatch_due(self, now_ms: int) -> list[TimeEvent]:
         events = self.advance(now_ms)
         await self.dispatch(events)
         return events

@@ -151,8 +151,10 @@ await clock.tick()
 now_ms = clock.now_ms()
 ```
 
-`tick()` waits or jumps, builds due `TimeEvent` items, and calls each timer's
-callback. `now_ms()` only returns current clock time.
+`Clock.tick()` waits on wall time, builds due `TimeEvent` items, and calls each
+timer's callback. `ReplayClock` does not pull data. Backtest replay code sets
+replay time and dispatches due timers after ingesting a timestamp batch.
+`now_ms()` only returns current clock time.
 
 Timer shape:
 
@@ -171,10 +173,14 @@ clock.set_timer("runtime", loop_seconds, Bot.loop_once)
 Live/paper `tick()` waits for the configured loop cadence. It does not
 wait for new BBO or bar data. `now_ms()` returns wall time.
 
-Backtest `tick()` jumps to the next useful replay timestamp:
+Backtest does not use wall sleep and does not let the clock pull market data.
+`Runtime.loop_backtest()` drives replay:
 
 ```text
-min(next scheduled loop time, next historical BBO/bar time)
+batch = next(replay_batches)
+ReplayClock.set_time(batch.ts_ms)
+FileDataEngine.ingest_replay_batch(batch)
+ReplayClock.dispatch_due(batch.ts_ms)
 ```
 
 ## command server

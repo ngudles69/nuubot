@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -14,6 +15,27 @@ class Bar:
     close: float
     volume: float
     closed: bool = True
+
+
+@dataclass(order=True)
+class ReplayEvent:
+    ts_ms: int
+    priority: int
+    seq: int
+    kind: str = field(compare=False)
+    payload: Any = field(compare=False)
+
+
+@dataclass
+class ReplayBatch:
+    ts_ms: int
+    events: list[ReplayEvent]
+
+
+@dataclass
+class MarketSnapshot:
+    bbo: dict[str, Any] | None = None
+    bars: dict[str, Bar] = field(default_factory=dict)
 
 
 @dataclass
