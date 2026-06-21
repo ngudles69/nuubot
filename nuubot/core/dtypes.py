@@ -13,6 +13,7 @@ class Bar:
     low: float
     close: float
     volume: float
+    closed: bool = True
 
 
 @dataclass

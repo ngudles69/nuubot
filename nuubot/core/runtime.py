@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import csv
 import json
+import time
+import urllib.request
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
@@ -17,6 +19,7 @@ from nuubot.core.dtypes import Bar, BotRunResult
 from nuubot.core.logger import logger
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.risk import Risk
+from nuubot.core.telemetry import Telemetry
 from nuubot.executor.tradebot import ExecutorTrade, TradeConfig
 from nuubot.signaler.emacross import SignalerEmaCross
 from nuubot.signaler.startnow import SignalerStartNow
@@ -27,9 +30,13 @@ RUNTIME_TIMER = "runtime"
 
 
 class BacktestData:
-    def __init__(self, config: BotrunConfig) -> None:
+    def __init__(self, config: BotrunConfig, telemetry: Telemetry) -> None:
         self.bars = load_binance_bars(config)
-        self.index = 0
+        self.start_ms = date_ms(config.backtest.start)
+        self.stop_ms = date_ms(config.backtest.stop)
+        self.index = next((idx for idx, bar in enumerate(self.bars) if bar.ts_ms >= self.start_ms), len(self.bars))
+        self.telemetry = telemetry
+        self.current_bar: Bar | None = None
 
     async def start(self) -> None:
         pass
@@ -37,23 +44,35 @@ class BacktestData:
     async def stop(self) -> None:
         pass
 
+    async def history(self, interval: str, limit: int) -> list[Bar]:
+        _ = interval
+        start = max(0, self.index - limit)
+        return self.bars[start : self.index]
+
+    async def ingest(self, event: TimeEvent) -> None:
+        _ = event
+        if self.index >= len(self.bars) or self.bars[self.index].ts_ms > self.stop_ms:
+            self.current_bar = None
+            return
+        self.current_bar = self.bars[self.index]
+        self.index += 1
+
     async def snapshot(self, now_ms: int) -> dict[str, Any]:
         _ = now_ms
-        if self.index >= len(self.bars):
+        if self.current_bar is None:
             return {}
-        bar = self.bars[self.index]
-        self.index += 1
-        return {"bar": bar}
+        return {"bar": self.current_bar}
 
     def next_ts_ms(self) -> int | None:
-        if self.index >= len(self.bars):
+        if self.index >= len(self.bars) or self.bars[self.index].ts_ms > self.stop_ms:
             return None
         return self.bars[self.index].ts_ms
 
 
 class PaperData:
-    def __init__(self, config: BotrunConfig) -> None:
+    def __init__(self, config: BotrunConfig, telemetry: Telemetry) -> None:
         self.config = config
+        self.telemetry = telemetry
         self.latest_bbo: dict[str, Any] | None = None
         self.latest_bar: Bar | None = None
         self._task: asyncio.Task[None] | None = None
@@ -70,6 +89,12 @@ class PaperData:
                 await self._task
             except asyncio.CancelledError:
                 pass
+
+    async def history(self, interval: str, limit: int) -> list[Bar]:
+        return await asyncio.to_thread(self._history, interval, limit)
+
+    async def ingest(self, event: TimeEvent) -> None:
+        _ = event
 
     async def snapshot(self, now_ms: int) -> dict[str, Any]:
         if self._task is not None and self._task.done():
@@ -95,17 +120,45 @@ class PaperData:
                 channel = message.get("channel")
                 if channel == "bbo":
                     self.latest_bbo = websocket_data(message)
+                    self.telemetry.bbo_received += 1
                     log.debug(f"papertest: bbo received: bbo_ts_ms={self.latest_bbo.get('time')} bbo={self.latest_bbo.get('bbo')}")
                 elif channel == "candle":
-                    self.latest_bar = hyperliquid_bar(message)
+                    self.latest_bar = hyperliquid_bar(message, self.config.market.interval, wall_ms())
+                    self.telemetry.candles_received += 1
                     log.debug(f"papertest: bar received: bar_ts_ms={self.latest_bar.ts_ms} bar={self.latest_bar}")
+
+    def _history(self, interval: str, limit: int) -> list[Bar]:
+        if limit <= 0:
+            return []
+        now_ms = wall_ms()
+        interval_ms_value = interval_ms(interval)
+        end_ms = now_ms - interval_ms_value
+        start_ms = end_ms - interval_ms_value * (limit + 10)
+        url = "https://api.hyperliquid.xyz/info"
+        if self.config.runtime.exec_network == "testnet":
+            url = "https://api.hyperliquid-testnet.xyz/info"
+        body = json.dumps({
+            "type": "candleSnapshot",
+            "req": {
+                "coin": self.config.market.symbol,
+                "interval": interval,
+                "startTime": start_ms,
+                "endTime": end_ms,
+            },
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            rows = json.loads(response.read().decode("utf-8"))
+        bars = [hyperliquid_candle(row, interval, now_ms) for row in rows]
+        return [bar for bar in sorted(bars, key=lambda item: item.ts_ms) if bar.closed][-limit:]
 
 
 class Runtime:
     def __init__(self, config: BotrunConfig) -> None:
         self.config = config
         self.clock = create_clock(config)
-        self.data = create_data(config)
+        self.telemetry = Telemetry()
+        self.data = create_data(config, self.telemetry)
         self.signalers = create_signalers(config)
         self.risk = Risk(config.risk)
         self.executor = create_executor(config)
@@ -129,7 +182,13 @@ class Runtime:
         self.clock.set_timer(RUNTIME_TIMER, self.config.runtime.loop_seconds, self.loop_once)
         await self.data.start()
         for signaler in self.signalers:
-            await signaler.start()
+            history = await self.data.history(signaler.interval, signaler.required_bars)
+            log.info(f"signaler seed name={signaler.__class__.__name__} bars={len(history)}", now=self.clock.now_ms())
+            await signaler.start(history)
+            closed_history = [bar for bar in history if bar.closed]
+            if closed_history:
+                self.last_bar = closed_history[-1]
+                self.last_bar_ms = max(self.last_bar_ms, closed_history[-1].ts_ms)
         await self.risk.start()
         await self.executor.start()
 
@@ -142,6 +201,7 @@ class Runtime:
         await self.executor.stop(self.last_bar)
         self.result = self.executor.result(self.bars_processed)
         log.debug("results:\n%s", json.dumps(asdict(self.result), indent=2, sort_keys=True), now=self.clock.now_ms())
+        log.debug("telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
 
     async def loop_backtest(self) -> None:
         data = self.data
@@ -153,11 +213,15 @@ class Runtime:
                 log.debug("runtime exit: no_market", now=self.clock.now_ms())
                 self.running = False
                 break
-            await self.clock.advance_and_dispatch(ts_ms)
+            event = TimeEvent(RUNTIME_TIMER, ts_ms, ts_ms)
+            self.clock.advance(ts_ms)
+            await data.ingest(event)
+            await self.loop_once(event)
 
     async def loop_once(self, event: TimeEvent) -> None:
         _ = event
         self.loop_count += 1
+        self.telemetry.loops += 1
 
         # exitcon - max loop
         if self.config.runtime.max_loop != 0 and self.loop_count > self.config.runtime.max_loop:
@@ -167,16 +231,26 @@ class Runtime:
         market = await self.process_market(self.clock.now_ms())
         bar = market.get("bar")
         if bar is None:
-            self.exit("no_market")
+            if self.config.runtime.exec_network == "backtest":
+                self.exit("no_market")
+            else:
+                self.log_telemetry()
             return
         if not isinstance(bar, Bar):
+            self.log_telemetry()
             return
-        if bar.ts_ms <= self.last_bar_ms:
+        if not bar.closed and not self.allow_partial():
+            self.log_telemetry()
+            return
+        if bar.closed and bar.ts_ms <= self.last_bar_ms:
+            self.log_telemetry()
             return
 
-        self.last_bar = bar
-        self.last_bar_ms = bar.ts_ms
-        self.bars_processed += 1
+        if bar.closed:
+            self.last_bar = bar
+            self.last_bar_ms = bar.ts_ms
+            self.bars_processed += 1
+            self.telemetry.bars_processed += 1
         risk_score = await self.risk.score()
         log.debug(f"risk_score={risk_score}", now=self.clock.now_ms())
         if await self.risk.exit():
@@ -189,6 +263,10 @@ class Runtime:
             return
 
         await self.executor.loop_once(bar, signal)
+        if await self.executor.exit():
+            self.exit("max_cycles")
+            return
+        self.log_telemetry()
 
     def exit(self, reason: str) -> None:
         log.debug(f"runtime exit: {reason}", now=self.clock.now_ms())
@@ -204,11 +282,20 @@ class Runtime:
         await self.risk.stop()
         await self.data.stop()
 
+    def log_telemetry(self) -> None:
+        if self.config.runtime.exec_network != "backtest":
+            log.info("telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
+
+    def allow_partial(self) -> bool:
+        return any(signaler.partial for signaler in self.signalers)
+
     async def process_market(self, now_ms: int) -> dict[str, Any]:
+        if self.config.runtime.exec_network != "backtest":
+            await self.data.ingest(TimeEvent(RUNTIME_TIMER, now_ms, now_ms))
         market = await self.data.snapshot(now_ms)
         if "bar" in market:
             bar = market["bar"]
-            log.debug(f"{self.config.runtime.exec_network}: bot_id={self.config.runtime.bot_id} loop #{self.loop_count}: now_ms={now_ms} bar_ts_ms={bar.ts_ms} bar={bar}")
+            log.debug(f"{self.config.runtime.exec_network}: bot_id={self.config.runtime.bot_id} loop #{self.loop_count}: now_ms={now_ms} bar_ts_ms={bar.ts_ms} closed={bar.closed} bar={bar}")
         if "bbo" in market:
             bbo = market["bbo"]
             log.debug(f"{self.config.runtime.exec_network}: bot_id={self.config.runtime.bot_id} loop #{self.loop_count}: now_ms={now_ms} bbo_ts_ms={bbo.get('time')} bbo={bbo.get('bbo')}")
@@ -219,9 +306,15 @@ class Runtime:
     async def process_signalers(self, bar: Bar) -> Any:
         signals = [await signaler.loop_once(bar) for signaler in self.signalers]
         if any(signal.exit for signal in signals):
-            return next(signal for signal in signals if signal.exit)
+            signal = next(signal for signal in signals if signal.exit)
+            log.info(f"signal exit reason={signal.reason}", now=bar.ts_ms)
+            self.telemetry.signal_exits += 1
+            return signal
         if any(signal.entry for signal in signals):
-            return next(signal for signal in signals if signal.entry)
+            signal = next(signal for signal in signals if signal.entry)
+            log.info(f"signal entry reason={signal.reason}", now=bar.ts_ms)
+            self.telemetry.signal_entries += 1
+            return signal
         return signals[0]
 
     async def signaler_exit(self) -> bool:
@@ -231,11 +324,11 @@ class Runtime:
         return False
 
 
-def create_data(config: BotrunConfig) -> BacktestData | PaperData:
+def create_data(config: BotrunConfig, telemetry: Telemetry) -> BacktestData | PaperData:
     if config.runtime.exec_network == "backtest":
-        return BacktestData(config)
+        return BacktestData(config, telemetry)
     if config.runtime.exec_network in {"mainnet", "testnet", "simnet"}:
-        return PaperData(config)
+        return PaperData(config, telemetry)
     raise ValueError(f"unsupported exec_network: {config.runtime.exec_network}")
 
 
@@ -277,10 +370,9 @@ def load_binance_bars(config: BotrunConfig) -> list[Bar]:
     bars: list[Bar] = []
     for path in sorted(root.glob(f"{config.market.symbol}-{config.market.interval}-*")):
         bars.extend(read_binance_file(path))
-    start_ms = date_ms(config.backtest.start)
     stop_ms = date_ms(config.backtest.stop)
-    bars = [bar for bar in bars if start_ms <= bar.ts_ms <= stop_ms]
-    if not bars:
+    bars = [bar for bar in bars if bar.ts_ms <= stop_ms]
+    if not any(date_ms(config.backtest.start) <= bar.ts_ms <= stop_ms for bar in bars):
         raise RuntimeError(f"no Binance bars matched {config.market.symbol} {config.market.interval} {config.backtest.start}..{config.backtest.stop}")
     return bars
 
@@ -324,18 +416,44 @@ def websocket_data(message: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def hyperliquid_bar(message: dict[str, Any]) -> Bar:
+def hyperliquid_bar(message: dict[str, Any], interval: str, now_ms: int) -> Bar:
     data = message.get("data")
     if not isinstance(data, dict):
         raise ValueError(f"bad candle payload: {message}")
+    return hyperliquid_candle(data, interval, now_ms)
+
+
+def hyperliquid_candle(data: dict[str, Any], interval: str, now_ms: int) -> Bar:
+    ts_ms = int(required(data, "t", "candle"))
     return Bar(
-        ts_ms=int(required(data, "t", "candle")),
+        ts_ms=ts_ms,
         open=float(required(data, "o", "candle")),
         high=float(required(data, "h", "candle")),
         low=float(required(data, "l", "candle")),
         close=float(required(data, "c", "candle")),
         volume=float(required(data, "v", "candle")),
+        closed=is_closed_bar(ts_ms, interval, now_ms),
     )
+
+
+def is_closed_bar(ts_ms: int, interval: str, now_ms: int) -> bool:
+    return now_ms >= ts_ms + interval_ms(interval)
+
+
+def interval_ms(interval: str) -> int:
+    unit = interval[-1]
+    value = int(interval[:-1])
+    if unit == "m":
+        return value * 60_000
+    if unit == "h":
+        return value * 3_600_000
+    if unit == "d":
+        return value * 86_400_000
+    raise ValueError(f"unsupported interval: {interval}")
+
+
+def wall_ms() -> int:
+    return int(time.time() * 1000)
 
 
 async def run(path: Path) -> Runtime:

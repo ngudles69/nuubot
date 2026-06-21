@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>runtime flow compare</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #202124; }
+    h1, h2 { margin: 0 0 12px; }
+    p { max-width: 980px; line-height: 1.45; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0 28px; table-layout: fixed; }
+    th, td { border: 1px solid #d7dce2; padding: 10px; vertical-align: top; }
+    th { background: #f3f5f7; text-align: left; }
+    td:first-child { width: 56px; text-align: right; color: #5f6368; }
+    code { background: #f6f8fa; padding: 1px 4px; border-radius: 4px; }
+    .shared { background: #f9fbff; }
+    .branch { background: #fff8e6; }
+    .risk { background: #fff1f1; }
+    .note { color: #5f6368; }
+  </style>
+</head>
+<body>
+  <h1>runtime flow compare</h1>
+  <p>
+    Current code shape in <code>nuubot/core/runtime.py</code> and
+    <code>nuubot/core/clock.py</code>. This page compares what happens today,
+    not the future target design.
+  </p>
+
+  <h2>aligned workflow</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>shared intent</th>
+        <th>paper/live path</th>
+        <th>backtest path</th>
+        <th>comment</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="shared">
+        <td>1</td>
+        <td>Load config.</td>
+        <td><code>load_botrun_config()</code></td>
+        <td><code>load_botrun_config()</code></td>
+        <td>Same path.</td>
+      </tr>
+      <tr class="shared">
+        <td>2</td>
+        <td>Create runtime objects.</td>
+        <td><code>Clock</code>, <code>PaperData</code>, signaler, risk, executor.</td>
+        <td><code>ReplayClock</code>, <code>BacktestData</code>, signaler, risk, executor.</td>
+        <td>Mode split is in object construction.</td>
+      </tr>
+      <tr class="shared">
+        <td>3</td>
+        <td>Initialize components.</td>
+        <td><code>Runtime.init()</code></td>
+        <td><code>Runtime.init()</code></td>
+        <td>Same lifecycle call.</td>
+      </tr>
+      <tr class="branch">
+        <td>4</td>
+        <td>Start data.</td>
+        <td><code>PaperData.start()</code> starts websocket task.</td>
+        <td><code>BacktestData.start()</code> no-op.</td>
+        <td>Live data arrives in background. Backtest data is already loaded.</td>
+      </tr>
+      <tr class="shared">
+        <td>5</td>
+        <td>Seed signalers with closed history.</td>
+        <td><code>PaperData.history()</code> fetches closed candles from Hyperliquid REST.</td>
+        <td><code>BacktestData.history()</code> returns bars before replay cursor.</td>
+        <td>Same runtime call. Different data ownership.</td>
+      </tr>
+      <tr class="shared">
+        <td>6</td>
+        <td>Mark latest seeded closed bar as processed.</td>
+        <td>Set <code>last_bar_ms</code> to latest seeded bar.</td>
+        <td>Set <code>last_bar_ms</code> to latest seeded bar.</td>
+        <td>Prevents acting on seed bars later.</td>
+      </tr>
+      <tr class="branch">
+        <td>7</td>
+        <td>Run loop driver.</td>
+        <td><code>Clock.run()</code> sleeps until timer and dispatches <code>loop_once()</code>.</td>
+        <td><code>Runtime.loop_backtest()</code> reads next replay timestamp.</td>
+        <td>Primary control-flow split.</td>
+      </tr>
+      <tr class="branch">
+        <td>8</td>
+        <td>Move clock forward.</td>
+        <td><code>Clock.tick()</code> sets <code>now_ms</code> from wall clock.</td>
+        <td><code>ReplayClock.advance(ts_ms)</code> sets <code>now_ms</code> to replay time.</td>
+        <td>Backtest does not sleep.</td>
+      </tr>
+      <tr class="risk">
+        <td>9</td>
+        <td>Prepare market state for this loop.</td>
+        <td>Websocket has already updated <code>latest_bbo/latest_bar</code>. Current code still calls no-op <code>PaperData.ingest()</code>.</td>
+        <td>Current code calls <code>BacktestData.ingest()</code> to move replay cursor into <code>current_bar</code>.</td>
+        <td>Name is confusing. In backtest this means replay select, not ingest.</td>
+      </tr>
+      <tr class="shared">
+        <td>10</td>
+        <td>Snapshot market.</td>
+        <td><code>PaperData.snapshot(now_ms)</code> returns latest buffered BBO/bar.</td>
+        <td><code>BacktestData.snapshot(now_ms)</code> returns current replay bar.</td>
+        <td>Same runtime call.</td>
+      </tr>
+      <tr class="shared">
+        <td>11</td>
+        <td>Skip invalid or unwanted bar.</td>
+        <td>Skip missing bar, duplicate closed bar, or partial bar unless a signaler has <code>partial = true</code>.</td>
+        <td>Skip missing bar or duplicate closed bar.</td>
+        <td>Backtest bars are closed.</td>
+      </tr>
+      <tr class="shared">
+        <td>12</td>
+        <td>Process risk.</td>
+        <td><code>risk.score()</code>, <code>risk.exit()</code></td>
+        <td><code>risk.score()</code>, <code>risk.exit()</code></td>
+        <td>Same path.</td>
+      </tr>
+      <tr class="shared">
+        <td>13</td>
+        <td>Process signal.</td>
+        <td><code>signaler.loop_once(bar)</code></td>
+        <td><code>signaler.loop_once(bar)</code></td>
+        <td>Same path. EMA mutates only on closed bars by default.</td>
+      </tr>
+      <tr class="shared">
+        <td>14</td>
+        <td>Process executor.</td>
+        <td><code>executor.loop_once(bar, signal)</code></td>
+        <td><code>executor.loop_once(bar, signal)</code></td>
+        <td>Same path.</td>
+      </tr>
+      <tr class="shared">
+        <td>15</td>
+        <td>Exit checks and telemetry.</td>
+        <td>Can exit on max loop, risk, signaler, max cycles, manual stop later. Logs live telemetry each loop.</td>
+        <td>Can exit on no market, max loop, risk, signaler, max cycles.</td>
+        <td>Same core checks; telemetry verbosity differs.</td>
+      </tr>
+      <tr class="shared">
+        <td>16</td>
+        <td>Stop and result.</td>
+        <td>Stop signalers/risk/data, close active executor state, write results.</td>
+        <td>Stop signalers/risk/data, close active executor state, write results.</td>
+        <td>Same path.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>current branch map</h2>
+  <pre class="mermaid">
+flowchart TD
+  A[load config] --> B[create Runtime]
+  B --> C[init]
+  C --> D[start]
+  D --> E[seed signalers]
+  E --> F{exec_network == backtest?}
+  F -- no --> G[Clock.run]
+  G --> H[Clock.tick wall time]
+  H --> I[dispatch loop_once]
+  F -- yes --> J[loop_backtest]
+  J --> K[next_ts_ms]
+  K --> L[ReplayClock.advance]
+  L --> M[BacktestData.ingest selects current_bar]
+  M --> I
+  I --> N[process_market snapshot]
+  N --> O[skip missing duplicate partial]
+  O --> P[risk]
+  P --> Q[signaler]
+  Q --> R[executor]
+  R --> S[telemetry / exit]
+  S --> T[stop / results]
+  </pre>
+
+  <p class="note">
+    Current concern: <code>BacktestData.ingest()</code> is named like live ingest,
+    but it currently means "select next replay bar". That is likely the first
+    naming/ownership cleanup before deciding whether separate runtimes are needed.
+  </p>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "default" });
+  </script>
+</body>
+</html>

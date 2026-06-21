@@ -13,6 +13,8 @@ class SignalerEmaCross:
             raise ValueError("EMA periods must be positive")
         if fast >= slow:
             raise ValueError("fast EMA must be lower than slow EMA")
+        self.partial = config.partial
+        self.required_bars = max(fast, slow) + 10
         self.fast_period = fast
         self.slow_period = slow
         self.fast_ema: float | None = None
@@ -23,10 +25,17 @@ class SignalerEmaCross:
     async def init(self) -> None:
         pass
 
-    async def start(self) -> None:
-        pass
+    async def start(self, history: list[Bar]) -> None:
+        for bar in history[-self.required_bars :]:
+            if bar.closed:
+                await self._calc(bar)
 
     async def loop_once(self, bar: Bar) -> Signal:
+        if not bar.closed and not self.partial:
+            return Signal()
+        return await self._calc(bar)
+
+    async def _calc(self, bar: Bar) -> Signal:
         self.count += 1
         self.fast_ema = ema(self.fast_ema, bar.close, self.fast_period)
         self.slow_ema = ema(self.slow_ema, bar.close, self.slow_period)
@@ -49,7 +58,7 @@ class SignalerEmaCross:
     async def ingest_many(self, bars: list[Bar]) -> list[Signal]:
         signals = []
         for bar in bars:
-            signals.append(await self.loop_once(bar))
+            signals.append(await self._calc(bar))
         return signals
 
     async def exit(self) -> bool:

@@ -1,0 +1,25 @@
+[runtime]
+bot_id = 22
+exec_network = "mainnet"
+data_network = "mainnet"
+max_loop = 0
+loop_seconds = 60.0
+min_timer_interval_ms = 1000
+
+[market]
+symbol = "BTC"
+interval = "1h"
+
+[[signalers]]
+name = "emacross"
+interval = "1h"
+params = { fast = 9, slow = 21 }
+
+[executor]
+name = "tradebot"
+take_profit_pct = 0.0
+stop_loss_pct = 0.0
+max_cycles = 3
+
+[risk]
+score = 1

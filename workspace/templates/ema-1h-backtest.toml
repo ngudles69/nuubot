@@ -1,0 +1,30 @@
+[runtime]
+bot_id = 21
+exec_network = "backtest"
+data_network = "file"
+max_loop = 0
+loop_seconds = 1.0
+min_timer_interval_ms = 1000
+
+[market]
+symbol = "BTCUSDT"
+interval = "1h"
+
+[backtest]
+start = "2025-01-01"
+stop = "2025-01-31T23:59:59"
+data_dir = "workspace/data/binance/raw/spot/monthly/klines"
+
+[[signalers]]
+name = "emacross"
+interval = "1h"
+params = { fast = 9, slow = 21 }
+
+[executor]
+name = "tradebot"
+take_profit_pct = 0.0
+stop_loss_pct = 0.0
+max_cycles = 3
+
+[risk]
+score = 1

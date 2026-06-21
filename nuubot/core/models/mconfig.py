@@ -36,6 +36,7 @@ class SignalerConfig(BaseModel):
 
     name: str
     interval: str
+    partial: bool = False
     params: dict[str, Any] = Field(default_factory=dict)
 
 
