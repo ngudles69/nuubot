@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from core.logger import logger
 
 
-log = logger("server.log")
+log = logger("workspace/logs/runtime.log")
 
 
 @dataclass

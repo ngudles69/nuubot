@@ -56,6 +56,10 @@ Write simple, clear code.
 - Keep project management in `.project/**`.
 - Keep task-scoped research in `.research/**`.
 
+## logging
+
+Use `wiki/logging.md`.
+
 ## objects
 
 - Use `wiki/coding/samples/objects.md` for object shape.

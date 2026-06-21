@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-21
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -22,6 +22,272 @@ sweep output includes a full normal botrun config.
 botrun config contains no sweep-only fields.
 good sweeprun -> extract botrun config -> run backtest/paper/live.
 ```
+
+Config hierarchy:
+
+```text
+SweepConfig
+  sweep settings
+  params/ranges
+  generates SweeprunConfig
+
+SweeprunConfig
+  period/window settings
+  botrun: BotrunConfig
+
+BotrunConfig
+  runtime
+  market
+  backtest
+  exchange
+  signalers
+  executor
+  risk
+```
+
+Botrun runtime fields:
+
+```toml
+[runtime]
+exec_network = "backtest" # mainnet | testnet | simnet | backtest
+data_network = "file"     # mainnet | testnet | file
+```
+
+Backtest file data lives under `[backtest]`:
+
+```toml
+[backtest]
+start = "2025-01-01"
+stop = "2025-03-31T23:59:59"
+data_dir = "workspace/data/binance/raw/spot/monthly/klines"
+```
+
+## modes
+
+`standard` is the default sweep mode.
+
+```toml
+[sweep]
+mode = "standard"  # or "fast"
+```
+
+`sweep.mode` controls the execution shell:
+
+- DB writes.
+- logging detail.
+- account detail persistence.
+- indicator build path.
+
+`sweep.mode` does not control strategy:
+
+- executor choice.
+- signaler choice.
+- risk logic.
+- strategy config.
+- result shape.
+
+Mode rule:
+
+```text
+mode = how the run is executed
+executor = what strategy logic is executed
+```
+
+Fast mode and standard mode should use the same executor unless the config
+explicitly selects a different executor.
+
+Fast executors are not special. They are normal named executors:
+
+```toml
+[sweep]
+mode = "fast"
+
+[executor]
+name = "grid_fast"
+```
+
+Never silently swap `grid` to `grid_fast` because `mode = "fast"`.
+
+Persistence rule:
+
+- fast sweep: write only after each sweeprun is done.
+- standard sweep: write only after each sweeprun is done.
+- paper/live: full DB persistence.
+- one-off backtest: full DB persistence by default.
+
+## objective
+
+Fast development and fast testing come first.
+
+Without a working profitable strategy, the rest of the runtime has no value.
+Sweeps exist to find strategy candidates quickly, then prove winners through
+the normal runtime.
+
+## two proof loops
+
+Build two small proofs before building the full sweep system.
+
+1. Fast sweep mode:
+
+```text
+uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-fast.toml
+```
+
+Purpose:
+
+- Load bars once.
+- Build EMA signals once per config.
+- Run `ExecutorTrade` over shared bars.
+- Collect final result only.
+- Print best results.
+
+Skip:
+
+- DB.
+- command server.
+- websocket.
+- runtime lifecycle ceremony.
+- per-loop file writes.
+
+2. Standard sweep mode:
+
+```text
+uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-standard.toml
+```
+
+Purpose:
+
+- Generate normal backtest configs.
+- Run each config through `Runtime(config)`.
+- Prove generated sweepruns can use the canonical backtest loop.
+
+Skip:
+
+- workers.
+- DB.
+- full result schema.
+- live/paper mode.
+
+Current proof files:
+
+- `nuubot/core/sweep.py`
+- `nuubot/core/runtime.py`
+- `nuubot/executor/tradebot.py`
+- `nuubot/signaler/emacross.py`
+- `workspace/templates/ema-1h-fast.toml`
+- `workspace/templates/ema-1h-standard.toml`
+- `sweep-fast.cmd`
+- `sweep-runtime.cmd`
+
+## simple tradebot proof
+
+Use the smallest EMA crossover strategy that can produce wins, losses, and
+final PnL.
+
+```text
+for bar in bars:
+  signal = EMA(9) vs EMA(21)
+
+  if no position and EMA(9) crosses above EMA(21):
+    buy
+
+  if position and EMA(9) crosses below EMA(21):
+    sell
+
+  optional TP/SL can also close the trade
+
+close any open position at the final bar
+return result
+```
+
+Minimum result:
+
+- config id.
+- pnl.
+- win count.
+- loss count.
+- trade count.
+- max drawdown.
+- speed timing.
+
+Speed timing:
+
+- data load ms.
+- indicator build ms.
+- strategy run ms.
+- total ms.
+- bars processed.
+- bars per second.
+- configs per second.
+- worker count.
+
+Speed timing is mandatory for every sweep proof. It measures how fast the sweep
+runs, not market time. A one-year 1m run should show:
+
+- how long data loading took.
+- how long indicator preparation took.
+- how long strategy execution took.
+- total wall-clock time.
+- throughput in bars per second and configs per second.
+
+## development route
+
+1. Build `core/sweep.py` serial fast mode first.
+2. Build `core/sweep.py` serial standard mode second.
+3. Compare that both loops can run over the same market period.
+4. Add workers to fast mode only after serial proof works.
+5. Add DB writes only after useful result fields are stable.
+
+## component reuse
+
+Reuse strategy primitives first:
+
+- market data loader.
+- indicator functions.
+- signaler logic.
+- risk scoring.
+- executor math.
+- result summary.
+
+Fast sweeps may skip runtime ceremony.
+
+Fast sweeps must not change trading logic.
+
+Runtime sweeps exist to validate that the same config works through the normal
+backtest loop.
+
+## comparison
+
+Compare executors by running normal sweepruns.
+
+Example:
+
+```text
+sweeprun A:
+  mode = "standard"
+  executor = "grid"
+
+sweeprun B:
+  mode = "fast"
+  executor = "grid_fast"
+```
+
+Compare:
+
+- pnl.
+- trade count.
+- win count.
+- loss count.
+- max drawdown.
+- entry timestamp differences.
+- exit timestamp differences.
+- entry price differences.
+- exit price differences.
+- missed trades.
+- extra trades.
+
+If an optimized executor reduces checks, expect subtle differences. Record the
+similarity and the differences before using it for large data sets.
 
 ## flow
 

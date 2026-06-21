@@ -1,5 +1,5 @@
 [runtime]
-bot_id = 1
+bot_id = 11
 exec_network = "backtest"
 data_network = "file"
 max_loop = 200
@@ -11,7 +11,7 @@ interval = "1m"
 
 [backtest]
 start = "2025-01-01"
-stop = "2025-01-03"
+stop = "2025-01-31T23:59:59"
 data_dir = "workspace/data/binance/raw/spot/monthly/klines"
 
 [[signalers]]

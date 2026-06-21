@@ -1,22 +1,25 @@
+[sweep]
+mode = "standard"
+start_bot_id = 300
+
 [runtime]
-bot_id = 1
 exec_network = "backtest"
 data_network = "file"
-max_loop = 200
+max_loop = 0
 loop_seconds = 1.0
 
 [market]
 symbol = "BTCUSDT"
-interval = "1m"
+interval = "1h"
 
 [backtest]
 start = "2025-01-01"
-stop = "2025-01-03"
+stop = "2025-03-31T23:59:59"
 data_dir = "workspace/data/binance/raw/spot/monthly/klines"
 
 [[signalers]]
 name = "emacross"
-interval = "1m"
+interval = "1h"
 params = { fast = 9, slow = 21 }
 
 [executor]
@@ -27,3 +30,7 @@ max_cycles = 0
 
 [risk]
 score = 1
+
+[params]
+ema_fast = [9]
+ema_slow = [21]

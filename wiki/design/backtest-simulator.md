@@ -13,11 +13,11 @@ tags: [design, backtest, simulator]
 
 - First loop reads both BBO and candles.
 - `ExchangeWsData` is the live websocket data source.
-- `Clock.next_loop()` waits or jumps.
+- `Clock.tick()` waits or jumps.
 - `Clock.now_ms()` only returns current clock time.
-- Live/paper `Clock.next_loop()` waits for the configured loop cadence.
-- Live/paper `Clock.next_loop()` does not wait for a new BBO or bar.
-- Backtest `Clock.next_loop()` jumps to the next useful replay timestamp:
+- Live/paper `Clock.tick()` waits for the configured loop cadence.
+- Live/paper `Clock.tick()` does not wait for a new BBO or bar.
+- Backtest `Clock.tick()` jumps to the next useful replay timestamp:
   `min(next scheduled loop time, next historical BBO/bar time)`.
 - Backtest should use the same runtime loop later by swapping:
   - `ExchangeData`

@@ -1,7 +1,7 @@
 ---
 title: strategy design
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-21
 type: wiki
 status: active
 tags: [design, strategy, risk, executor]
@@ -51,10 +51,33 @@ if cycle_losses >= max_cycle_losses:
 - Signalers are inputs to executors.
 - Do not build a signaler framework until multiple real signalers need shared
   structure.
+- Botrun config owns a `signalers` list.
+- Every signaler config item has:
+  - `name`
+  - `interval`
+  - `params`
+- Pydantic validates the generic signaler item shape.
+- Each signaler object validates its own `params` at runtime.
+
+Example:
+
+```toml
+[[signalers]]
+name = "emacross"
+interval = "1h"
+params = { fast = 9, slow = 21 }
+
+[[signalers]]
+name = "regime"
+interval = "4h"
+params = { sma = 200 }
+```
 
 ## executors
 
 - Executors are free-form strategy code.
+- Executors define strategy behavior.
+- Runtime mode and sweep mode must not silently replace executors.
 - Start with `ExecutorTrade`.
 - `ExecutorTrade` can submit one entry batch:
   - entry only
@@ -69,6 +92,29 @@ if cycle_losses >= max_cycle_losses:
 - Executors call `Signaler` as needed.
 - Executors call `ExchangeAccount` directly.
 - Executors own normal strategy position lifecycle.
+
+Optimized executors are separate named executors. A fast executor is not a
+special engine feature.
+
+Example:
+
+```text
+ExecutorGrid
+ExecutorGridFast
+ExecutorTrade
+ExecutorDCA
+```
+
+Select optimized executors explicitly in config:
+
+```toml
+[executor]
+name = "grid_fast"
+```
+
+If an optimized executor reduces checks, validate it against the canonical
+executor with the same data and config. Compare result summary and trade trace
+before using it for large data sets.
 
 `ExchangeAccount` must support batch submit shapes needed by executor trade:
 

@@ -1,7 +1,7 @@
 ---
 title: design overview
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-21
 type: wiki
 status: active
 tags: [design, overview]
@@ -41,7 +41,8 @@ without recreating the over-built shape of `nuutrader6`.
 ## decisions
 
 - Use a Python package folder for real code.
-- Run the bot as `uv run python -m nuubot.bot -f <paramfile>`.
+- Run a bot as `uv run python -m nuubot.core.runtime -f <paramfile>`.
+- Run a sweep as `uv run python -m nuubot.core.sweep -f <paramfile>`.
 - Use TOML for `<paramfile>`.
 - Treat credentials as part of config for now.
 - Persist config snapshots with credentials redacted or omitted.
@@ -98,11 +99,12 @@ without recreating the over-built shape of `nuutrader6`.
 - No freeze command yet.
 - No full telemetry framework yet.
 - No simulator implementation yet.
-- No live/paper/backtest/sweeps implementation yet.
+- No live trading implementation yet.
 
 ## proof needs
 
-- `uv run python -m nuubot.bot -f <paramfile>` starts a runnable bot scaffold.
+- `uv run python -m nuubot.core.runtime -f <paramfile>` starts a runnable bot
+  scaffold.
 - DB tables are created if missing.
 - Bot row is written.
 - Redacted config snapshot is stored with the bot row.

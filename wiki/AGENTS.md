@@ -24,6 +24,8 @@ Rules for files under `wiki/**`.
 1. Core:
   - `project.md`: vision, objective, and guidance.
   - `architecture.md`: architecture notes.
+  - `logging.md`: logging format and cascading error path.
+  - `testing.md`: compile check and smoke test commands.
   - `repomap.md`: repo map.
 2. Design:
   - `design/AGENTS.md`: design map.

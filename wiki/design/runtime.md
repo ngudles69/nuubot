@@ -20,48 +20,37 @@ Canonical loop:
 
 ```text
 while running:
-  await Clock.next_loop()
-  now_ms = Clock.now_ms()
+  await Clock.tick()
+```
 
-  await Command.process()
-  if Command.exit():
-    break
+`Bot.loop_once(event)` is the bot unit of work:
 
-  market = await ExchangeData.snapshot(now_ms)
-  new_bbo = market.new_bbo(last_bbo_ms)
-  new_bar = market.new_bar(last_bar_ms)
+```text
+Bot.loop_count += 1
 
-  if not new_bbo and not new_bar:
-    Bot.loop_count += 1
-    Bot.last_loop_ms = now_ms
-    continue
+if max_loop reached:
+  stop runtime
+  return
 
-  if new_bbo:
-    last_bbo_ms = market.bbo.ts_ms
+market = await ExchangeData.snapshot(Clock.now_ms())
+if no market:
+  stop runtime
+  return
 
-  if new_bar:
-    last_bar_ms = market.bar.ts_ms
+if market bar is not new:
+  return
 
-  await Signaler.process(market)
-  if Signaler.exit():
-    break
+risk_score = await Risk.score()
+if Risk.exit():
+  stop runtime
+  return
 
-  risk_score = await Risk.score(context)
-  if Risk.exit():
-    break
+signal = await Signaler.process(market)
+if Signaler.exit():
+  stop runtime
+  return
 
-  for Executor in executors:
-    if Executor.exit():
-      break
-
-    if Signaler.entry() and not Executor.started():
-      await Executor.start(context)
-      continue
-
-    await Executor.loop_once(context)
-
-  Bot.loop_count += 1
-  Bot.last_loop_ms = now_ms
+await Executor.loop_once(market, signal)
 ```
 
 Runtime binding:
@@ -158,16 +147,31 @@ The visible intent flow should answer:
 All code after initialization uses the same clock API:
 
 ```text
-await clock.next_loop()
+await clock.tick()
 now_ms = clock.now_ms()
 ```
 
-`next_loop()` waits or jumps. `now_ms()` only returns current clock time.
+`tick()` waits or jumps, builds due `TimeEvent` items, and calls each timer's
+callback. `now_ms()` only returns current clock time.
 
-Live/paper `next_loop()` waits for the configured loop cadence. It does not
+Timer shape:
+
+```text
+Clock
+  TimeEvent
+  Timer
+```
+
+Runtime registers one timer first:
+
+```text
+clock.set_timer("runtime", loop_seconds, Bot.loop_once)
+```
+
+Live/paper `tick()` waits for the configured loop cadence. It does not
 wait for new BBO or bar data. `now_ms()` returns wall time.
 
-Backtest `next_loop()` jumps to the next useful replay timestamp:
+Backtest `tick()` jumps to the next useful replay timestamp:
 
 ```text
 min(next scheduled loop time, next historical BBO/bar time)
