@@ -4,12 +4,12 @@ created: 2026-06-21
 updated: 2026-06-21
 type: wiki
 status: draft
-tags: [runtime, clock, backtest, live, paper]
+tags: [runtime, clock, backtest, simnet, mainnet, testnet]
 ---
 
 # Runtime Flow
 
-Objective: compare live/paper vs backtest row by row before changing code.
+Objective: compare wall-time modes vs replay modes row by row before changing code.
 
 Core rule:
 
@@ -21,7 +21,7 @@ Runtime.loop_once() reads snapshot and runs bot logic.
 
 ## Concept Compare
 
-| Concept | Live / Paper | Backtest |
+| Concept | Mainnet / Testnet / Simnet | Backtest |
 | --- | --- | --- |
 | Who drives whom | `Runtime.loop()` starts `Clock.run()`; wall time wakes `Clock`; `Clock` dispatches `loop_once()`. | `Runtime.loop()` starts a plain replay loop; the loop pulls data batch, advances `ReplayClock`, ingests batch, then dispatches `loop_once()`. |
 | Driver source | Wall time through asyncio event loop. | Prepared replay data through a plain loop. |
@@ -37,7 +37,7 @@ Runtime.loop_once() reads snapshot and runs bot logic.
 
 ## Code Execution Compare
 
-| Step | Live / Paper | Backtest |
+| Step | Mainnet / Testnet / Simnet | Backtest |
 | --- | --- | --- |
 | 1. Build runtime | Create config, `Clock`, `WsDataEngine`, signalers, risk, executor. | Create config, `ReplayClock`, `FileDataEngine`, signalers, risk, executor. |
 | 2. Data init | Validate config/history access. | Load trusted historical data. Prepare replay events, timestamp-indexed indicator arrays/signals, and timestamp batches. No live-feed readiness gate. |

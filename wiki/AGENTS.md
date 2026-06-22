@@ -33,7 +33,7 @@ Rules for files under `wiki/**`.
   - `design/runtime.md`: standard bot loop, clock, command server, telemetry.
   - `design/state.md`: datastore, botrun state, exchange meta, reconciliation.
   - `design/strategy.md`: risk, signalers, executors.
-  - `design/backtest-simulator.md`: live/paper/backtest and simulator.
+  - `design/backtest-simulator.md`: mode/network binding and simulator.
   - `design/frontend.md`: datastore viewer and command boundary.
   - `design/sweeps.md`: sweep, sweeprun, botrun, parameters.
   - `design/design.html`: database ER diagram.

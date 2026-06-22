@@ -24,9 +24,10 @@ Expected:
 - Stops after 200 runtime loops.
 - Runs quickly because replay time drives the clock.
 
-## smoke test papertest
+## smoke test simnet
 
-Use this when asked to test papertest mode.
+Use this when asked to test simnet mode. The template filename still says
+`papertest` until the file is renamed.
 
 ```bash
 rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-papertest.toml

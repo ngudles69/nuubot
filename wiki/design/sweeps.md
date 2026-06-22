@@ -20,7 +20,7 @@ tags: [design, sweeps]
 ```text
 sweep output includes a full normal botrun config.
 botrun config contains no sweep-only fields.
-good sweeprun -> extract botrun config -> run backtest/paper/live.
+good sweeprun -> extract botrun config -> run backtest/simnet/mainnet.
 ```
 
 Config hierarchy:
@@ -49,9 +49,16 @@ Botrun runtime fields:
 
 ```toml
 [runtime]
-exec_network = "backtest" # mainnet | testnet | simnet | backtest
-data_network = "file"     # mainnet | testnet | file
+mode = "backtest"
 ```
+
+Sweep-generated botruns use `runtime.mode = "backtest"` by default. The derived
+properties are `data_network = "filedata"` and `exec_network = "simulator"`.
+`sweep.mode` still controls how the sweep is executed, not where data or
+execution goes.
+
+Sweep does not use the bot runtime log naming. Bot modes use
+`bot_<mode>_<bot_id>.log`; sweep uses its own sweep log format.
 
 Backtest file data lives under `[backtest]`:
 
@@ -112,7 +119,7 @@ Persistence rule:
 
 - fast sweep: write only after each sweeprun is done.
 - standard sweep: write only after each sweeprun is done.
-- paper/live: full DB persistence.
+- mainnet/testnet/simnet: full DB persistence.
 - one-off backtest: full DB persistence by default.
 
 ## objective
@@ -166,7 +173,7 @@ Skip:
 - workers.
 - DB.
 - full result schema.
-- live/paper mode.
+- mainnet/testnet/simnet mode.
 
 Current proof files:
 

@@ -1,7 +1,6 @@
 [runtime]
 bot_id = 2
-exec_network = "mainnet"
-data_network = "mainnet"
+mode = "simnet"
 max_loop = 20
 loop_seconds = 5.0
 min_timer_interval_ms = 1000

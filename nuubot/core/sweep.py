@@ -57,8 +57,9 @@ def load_sweep(path: Path) -> tuple[str, list[BotrunConfig]]:
 def sweep_bot_data(config: BotrunConfig, bot_id: int, ema_fast: int, ema_slow: int) -> dict[str, Any]:
     bot_data = config.model_dump()
     bot_data["runtime"]["bot_id"] = bot_id
-    bot_data["runtime"]["exec_network"] = "backtest"
-    bot_data["runtime"]["data_network"] = "file"
+    bot_data["runtime"]["mode"] = "backtest"
+    bot_data["runtime"].pop("exec_network", None)
+    bot_data["runtime"].pop("data_network", None)
     bot_data["signalers"][0]["params"]["fast"] = ema_fast
     bot_data["signalers"][0]["params"]["slow"] = ema_slow
     return bot_data

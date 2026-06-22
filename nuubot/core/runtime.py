@@ -9,8 +9,8 @@ from typing import Any
 
 from nuubot.core.clock import Clock, ReplayClock, TimeEvent
 from nuubot.core.config import load_botrun_config
-from nuubot.core.dtypes import Bar, BotRunResult, MarketSnapshot, Signal
-from nuubot.core.logger import logger
+from nuubot.core.dtypes import Bar, BotRunResult, MarketSnapshot, Mode, Signal
+from nuubot.core.logger import format_bar, format_bbo, format_ms, logger
 from nuubot.core.market_data import FileDataEngine, WsDataEngine
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.risk import Risk
@@ -27,12 +27,14 @@ RUNTIME_TIMER = "runtime"
 class Runtime:
     def __init__(self, config: BotrunConfig) -> None:
         self.config = config
+        self.mode = runtime_mode(config)
+        self.log = logger(bot_log_path(config))
         self.clock = create_clock(config)
         self.telemetry = Telemetry()
-        self.data = create_data(config, self.telemetry)
+        self.data = create_data(config, self.telemetry, self.log)
         self.signalers = create_signalers(config)
         self.risk = Risk(config.risk)
-        self.executor = create_executor(config)
+        self.executor = create_executor(config, self.log)
         self.loop_count = 0
         self.bars_processed = 0
         self.last_bar_ms_by_interval: dict[str, int] = {}
@@ -41,7 +43,7 @@ class Runtime:
         self.running = False
 
     async def init(self) -> None:
-        log.debug("runtime init", now=self.clock.now_ms())
+        self.log.debug("runtime init", now=self.clock.now_ms())
         await self.data.init()
         for signaler in self.signalers:
             await signaler.init()
@@ -49,7 +51,7 @@ class Runtime:
         await self.executor.init()
 
     async def start(self) -> None:
-        log.debug("runtime start", now=self.clock.now_ms())
+        self.log.debug("runtime start", now=self.clock.now_ms())
         self.running = True
         await self.data.start()
         await self.seed_signalers()
@@ -60,7 +62,7 @@ class Runtime:
     async def seed_signalers(self) -> None:
         for signaler in self.signalers:
             history = await self.data.history(signaler.interval, signaler.required_bars)
-            log.info(f"signaler seed name={signaler.__class__.__name__} bars={len(history)}", now=self.clock.now_ms())
+            self.log.info(f"signaler_seed name={signaler.__class__.__name__} bars={len(history)}", now=self.clock.now_ms())
             await signaler.start(history)
             closed_history = [bar for bar in history if bar.closed]
             if closed_history:
@@ -70,15 +72,15 @@ class Runtime:
                     self.last_bar = last
 
     async def loop(self) -> None:
-        if self.config.runtime.exec_network == "backtest":
+        if self.mode == Mode.BACKTEST:
             await self.loop_backtest()
         else:
             await self.clock.run()
 
         await self.executor.stop(self.last_bar)
         self.result = self.executor.result(self.bars_processed)
-        log.debug("results:\n%s", json.dumps(asdict(self.result), indent=2, sort_keys=True), now=self.clock.now_ms())
-        log.debug("telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
+        self.log.debug("results:\n%s", json.dumps(asdict(self.result), indent=2, sort_keys=True), now=self.clock.now_ms())
+        self.log.debug("telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
 
     async def loop_backtest(self) -> None:
         if not isinstance(self.data, FileDataEngine) or not isinstance(self.clock, ReplayClock):
@@ -113,7 +115,7 @@ class Runtime:
         self.mark_bars_processed(eligible)
 
         risk_score = await self.risk.score()
-        log.debug(f"risk_score={risk_score}", now=self.clock.now_ms())
+        self.log.debug(f"risk_score={risk_score}", now=self.clock.now_ms())
         if await self.risk.exit():
             self.exit("risk")
             return
@@ -133,15 +135,17 @@ class Runtime:
     async def market_snapshot(self, now_ms: int) -> MarketSnapshot:
         snapshot = await self.data.snapshot(now_ms)
         for interval, bar in sorted(snapshot.bars.items()):
-            log.debug(
-                f"{self.config.runtime.exec_network}: bot_id={self.config.runtime.bot_id} loop #{self.loop_count}: "
-                f"now_ms={now_ms} interval={interval} bar_ts_ms={bar.ts_ms} closed={bar.closed} bar={bar}",
+            self.log.debug(
+                f"{self.mode} bar bot_id={self.config.runtime.bot_id} loop={self.loop_count} "
+                f"tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)}",
                 now=now_ms,
             )
         if snapshot.bbo is not None:
-            log.debug(
-                f"{self.config.runtime.exec_network}: bot_id={self.config.runtime.bot_id} loop #{self.loop_count}: "
-                f"now_ms={now_ms} bbo_ts_ms={snapshot.bbo.get('time')} bbo={snapshot.bbo.get('bbo')}",
+            bbo_ts = snapshot.bbo.get("time")
+            ts_text = format_ms(int(bbo_ts)) if isinstance(bbo_ts, int) else str(bbo_ts)
+            self.log.debug(
+                f"{self.mode} bbo bot_id={self.config.runtime.bot_id} loop={self.loop_count} "
+                f"ts_bbo: {ts_text} data={format_bbo(snapshot.bbo)}",
                 now=now_ms,
             )
         return snapshot
@@ -179,14 +183,14 @@ class Runtime:
         exit_signal = next(((bar, signal) for bar, signal in results if signal.exit), None)
         if exit_signal is not None:
             bar, signal = exit_signal
-            log.info(f"signal exit reason={signal.reason}", now=bar.ts_ms)
+            self.log.info(f"signal_exit reason={signal.reason}", now=bar.ts_ms)
             self.telemetry.signal_exits += 1
             return bar, signal
 
         entry_signal = next(((bar, signal) for bar, signal in results if signal.entry), None)
         if entry_signal is not None:
             bar, signal = entry_signal
-            log.info(f"signal entry reason={signal.reason}", now=bar.ts_ms)
+            self.log.info(f"signal_entry reason={signal.reason}", now=bar.ts_ms)
             self.telemetry.signal_entries += 1
             return bar, signal
 
@@ -199,13 +203,13 @@ class Runtime:
         return False
 
     def exit(self, reason: str) -> None:
-        log.debug(f"runtime exit: {reason}", now=self.clock.now_ms())
+        self.log.debug(f"runtime_exit reason={reason}", now=self.clock.now_ms())
         self.running = False
         if RUNTIME_TIMER in self.clock.timers:
             self.clock.cancel_timer(RUNTIME_TIMER)
 
     async def stop(self) -> None:
-        log.debug("runtime stop", now=self.clock.now_ms())
+        self.log.debug("runtime stop", now=self.clock.now_ms())
         self.exit("stop")
         for signaler in self.signalers:
             await signaler.stop()
@@ -213,24 +217,24 @@ class Runtime:
         await self.data.stop()
 
     def log_telemetry(self) -> None:
-        if self.config.runtime.exec_network != "backtest":
-            log.info("telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
+        if self.mode != Mode.BACKTEST:
+            self.log.info(f"{self.mode} telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
 
     def exit_if_max_loop(self) -> None:
         if self.config.runtime.max_loop != 0 and self.loop_count >= self.config.runtime.max_loop:
             self.exit("max_loop")
 
 
-def create_data(config: BotrunConfig, telemetry: Telemetry) -> FileDataEngine | WsDataEngine:
-    if config.runtime.exec_network == "backtest":
-        return FileDataEngine(config, telemetry)
-    if config.runtime.exec_network in {"mainnet", "testnet", "simnet"}:
-        return WsDataEngine(config, telemetry)
-    raise ValueError(f"unsupported exec_network: {config.runtime.exec_network}")
+def create_data(config: BotrunConfig, telemetry: Telemetry, run_log: Any) -> FileDataEngine | WsDataEngine:
+    if config.runtime.mode == Mode.BACKTEST:
+        return FileDataEngine(config, telemetry, run_log)
+    if config.runtime.mode in {Mode.MAINNET, Mode.TESTNET, Mode.SIMNET}:
+        return WsDataEngine(config, telemetry, run_log)
+    raise ValueError(f"unsupported mode: {config.runtime.mode}")
 
 
 def create_clock(config: BotrunConfig) -> Clock:
-    if config.runtime.exec_network == "backtest":
+    if config.runtime.mode == Mode.BACKTEST:
         return ReplayClock(config.runtime.min_timer_interval_ms)
     return Clock(config.runtime.min_timer_interval_ms)
 
@@ -247,11 +251,19 @@ def create_signaler(config: Any) -> Any:
     raise ValueError(f"unsupported signaler: {config.name}")
 
 
-def create_executor(config: BotrunConfig) -> ExecutorTrade:
+def create_executor(config: BotrunConfig, run_log: Any) -> ExecutorTrade:
     if config.executor.name != "tradebot":
         raise ValueError(f"unsupported executor: {config.executor.name}")
     trade_config = TradeConfig(config.runtime.bot_id, config.executor.take_profit_pct, config.executor.stop_loss_pct, config.executor.max_cycles)
-    return ExecutorTrade(trade_config)
+    return ExecutorTrade(trade_config, run_log)
+
+
+def bot_log_path(config: BotrunConfig) -> str:
+    return f"workspace/logs/bot_{runtime_mode(config)}_{config.runtime.bot_id}.log"
+
+
+def runtime_mode(config: BotrunConfig) -> Mode:
+    return config.runtime.mode
 
 
 async def run(path: Path) -> Runtime:
@@ -262,7 +274,7 @@ async def run(path: Path) -> Runtime:
         await runtime.loop()
         return runtime
     except Exception:
-        log.error("runtime aborted.")
+        runtime.log.error("runtime_aborted")
         raise
     finally:
         await runtime.stop()

@@ -3,7 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
+
+class Mode(StrEnum):
+    MAINNET = "mainnet"
+    TESTNET = "testnet"
+    SIMNET = "simnet"
+    BACKTEST = "backtest"
+
+
+class DataNetwork(StrEnum):
+    WSDATA = "wsdata"
+    FILEDATA = "filedata"
+
+
+class ExecNetwork(StrEnum):
+    MAINNET = "mainnet"
+    TESTNET = "testnet"
+    SIMULATOR = "simulator"
+
+
+MODE_NETWORKS: dict[Mode, tuple[DataNetwork, ExecNetwork]] = {
+    Mode.MAINNET: (DataNetwork.WSDATA, ExecNetwork.MAINNET),
+    Mode.TESTNET: (DataNetwork.WSDATA, ExecNetwork.TESTNET),
+    Mode.SIMNET: (DataNetwork.WSDATA, ExecNetwork.SIMULATOR),
+    Mode.BACKTEST: (DataNetwork.FILEDATA, ExecNetwork.SIMULATOR),
+}
 
 
 @dataclass

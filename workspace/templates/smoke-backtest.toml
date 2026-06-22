@@ -1,7 +1,6 @@
 [runtime]
 bot_id = 11
-exec_network = "backtest"
-data_network = "file"
+mode = "backtest"
 max_loop = 200
 loop_seconds = 1.0
 

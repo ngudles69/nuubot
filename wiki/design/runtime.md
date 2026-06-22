@@ -56,9 +56,10 @@ await Executor.loop_once(market, signal)
 Runtime binding:
 
 ```text
-live      = real ExchangeData + real ExchangeAccount + wall Clock
-paper     = real ExchangeData + simulator ExchangeAccount + wall Clock
-backtest  = historical ExchangeData + simulator ExchangeAccount + replay Clock
+mainnet   = wsdata + mainnet execution + wall Clock
+testnet   = wsdata + testnet execution + wall Clock
+simnet    = wsdata + simulator execution + wall Clock
+backtest  = filedata + simulator execution + replay Clock
 ```
 
 `bar` means candle.
@@ -114,7 +115,7 @@ Bot
   Risk
   Signaler list
   Executor list
-  Simulator when running paper/backtest later
+  Simulator when running simnet/backtest later
 ```
 
 Interaction rule:
@@ -170,8 +171,8 @@ Runtime registers one timer first:
 clock.set_timer("runtime", loop_seconds, Bot.loop_once)
 ```
 
-Live/paper `tick()` waits for the configured loop cadence. It does not
-wait for new BBO or bar data. `now_ms()` returns wall time.
+Mainnet/testnet/simnet `tick()` waits for the configured loop cadence. It does
+not wait for new BBO or bar data. `now_ms()` returns wall time.
 
 Backtest does not use wall sleep and does not let the clock pull market data.
 `Runtime.loop_backtest()` drives replay:

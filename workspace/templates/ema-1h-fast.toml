@@ -3,8 +3,7 @@ mode = "fast"
 start_bot_id = 200
 
 [runtime]
-exec_network = "backtest"
-data_network = "file"
+mode = "backtest"
 max_loop = 0
 loop_seconds = 1.0
 

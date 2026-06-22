@@ -17,8 +17,9 @@ class TradeConfig:
 
 
 class ExecutorTrade:
-    def __init__(self, config: TradeConfig) -> None:
+    def __init__(self, config: TradeConfig, run_log=log) -> None:
         self.config = config
+        self.log = run_log
         self.active = False
         self.entry_price = 0.0
         self.pnl_pct = 0.0
@@ -74,7 +75,7 @@ class ExecutorTrade:
         self.trades += 1
         self.entry_price = bar.close
         self.active = True
-        log.info(f"trade open cycle={self.cycle_id} price={bar.close}", now=bar.ts_ms)
+        self.log.info(f"trade_open cycle={self.cycle_id} price={bar.close}", now=bar.ts_ms)
 
     def _close(self, change_pct: float, reason: str, now_ms: int) -> None:
         self.pnl_pct += change_pct
@@ -83,7 +84,7 @@ class ExecutorTrade:
         self.cycle_count += 1
         self.active = False
         self.entry_price = 0.0
-        log.info(f"trade close cycle={self.cycle_id} reason={reason} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f}", now=now_ms)
+        self.log.info(f"trade_close cycle={self.cycle_id} reason={reason} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f}", now=now_ms)
 
     def _can_enter(self) -> bool:
         return self.config.max_cycles == 0 or self.cycle_count < self.config.max_cycles

@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 
 from nuubot.core.clock import ReplayClock
-from nuubot.core.dtypes import Bar, MarketSnapshot, ReplayEvent
+from pydantic import ValidationError
+
+from nuubot.core.dtypes import Bar, DataNetwork, ExecNetwork, MarketSnapshot, Mode, ReplayEvent
+from nuubot.core.models.mconfig import BotrunConfig
+from nuubot.core.logger import format_bar, format_bbo, format_ms
 from nuubot.core.market_data import derive_bars, group_replay_events
 from nuubot.core.runtime import Runtime
 from nuubot.core.telemetry import Telemetry
@@ -38,6 +42,40 @@ def test_larger_interval_bars_are_derived_from_closed_base_bars() -> None:
     bars = derive_bars(base, "1m", "3m")
 
     assert bars == [Bar(0, 10.0, 13.0, 9.0, 12.5, 6.0)]
+
+
+def test_log_format_helpers_are_compact() -> None:
+    assert format_ms(1_000).endswith(".000")
+    assert "," not in format_ms(1_000)
+    assert format_bar(Bar(1_000, 1.0, 2.0, 0.5, 1.5, 10.0)) == "[o:1.0 h:2.0 l:0.5 c:1.5 v:10.0 closed:true]"
+    assert format_bbo({"bbo": [{"px": "1", "sz": "2", "n": 3}, {"px": "4", "sz": "5", "n": 6}]}) == "[bid:1 bid_sz:2 bid_n:3 ask:4 ask_sz:5 ask_n:6]"
+
+
+def test_runtime_rejects_manual_network_fields() -> None:
+    data = {
+        "runtime": {"bot_id": 1, "mode": "simnet", "data_network": "wsdata", "exec_network": "mainnet", "max_loop": 1, "loop_seconds": 1.0},
+        "market": {"symbol": "BTC", "interval": "1m"},
+        "signalers": [{"name": "startnow", "interval": "1m"}],
+        "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
+    }
+    try:
+        BotrunConfig.model_validate(data)
+    except ValidationError as exc:
+        assert "Extra inputs are not permitted" in str(exc)
+    else:
+        raise AssertionError("manual network fields passed")
+
+
+def test_pydantic_parses_runtime_mode_enums() -> None:
+    config = BotrunConfig.model_validate({
+        "runtime": {"bot_id": 1, "mode": "simnet", "max_loop": 1, "loop_seconds": 1.0},
+        "market": {"symbol": "BTC", "interval": "1m"},
+        "signalers": [{"name": "startnow", "interval": "1m"}],
+        "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
+    })
+    assert config.runtime.mode == Mode.SIMNET
+    assert config.runtime.data_network == DataNetwork.WSDATA
+    assert config.runtime.exec_network == ExecNetwork.SIMULATOR
 
 
 async def test_replay_clock_dispatches_once_per_same_timestamp() -> None:
@@ -77,6 +115,9 @@ def test_runtime_keeps_all_signalers_for_same_new_bar() -> None:
 async def main() -> None:
     test_same_timestamp_events_group_into_one_batch()
     test_larger_interval_bars_are_derived_from_closed_base_bars()
+    test_log_format_helpers_are_compact()
+    test_runtime_rejects_manual_network_fields()
+    test_pydantic_parses_runtime_mode_enums()
     await test_replay_clock_dispatches_once_per_same_timestamp()
     test_runtime_keeps_all_signalers_for_same_new_bar()
 

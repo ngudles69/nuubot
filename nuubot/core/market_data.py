@@ -13,7 +13,8 @@ from typing import Any
 import websockets
 
 from nuubot.core.dtypes import Bar, MarketSnapshot, ReplayBatch, ReplayEvent
-from nuubot.core.logger import logger
+from nuubot.core.dtypes import Mode
+from nuubot.core.logger import format_bar, format_bbo, format_ms, logger
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.telemetry import Telemetry
 
@@ -21,9 +22,10 @@ log = logger("workspace/logs/runtime.log")
 
 
 class FileDataEngine:
-    def __init__(self, config: BotrunConfig, telemetry: Telemetry) -> None:
+    def __init__(self, config: BotrunConfig, telemetry: Telemetry, run_log: Any = log) -> None:
         self.config = config
         self.telemetry = telemetry
+        self.log = run_log
         self.start_ms = date_ms(config.backtest.start)
         self.stop_ms = date_ms(config.backtest.stop)
         self.bars: list[Bar] = []
@@ -99,9 +101,10 @@ class FileDataEngine:
 
 
 class WsDataEngine:
-    def __init__(self, config: BotrunConfig, telemetry: Telemetry) -> None:
+    def __init__(self, config: BotrunConfig, telemetry: Telemetry, run_log: Any = log) -> None:
         self.config = config
         self.telemetry = telemetry
+        self.log = run_log
         self.intervals = required_intervals(config)
         self.latest_bbo: dict[str, Any] | None = None
         self.bars: dict[str, Bar] = {}
@@ -137,7 +140,7 @@ class WsDataEngine:
 
     async def _listen(self) -> None:
         url = "wss://api.hyperliquid.xyz/ws"
-        if self.config.runtime.exec_network == "testnet":
+        if self.config.runtime.mode == Mode.TESTNET:
             url = "wss://api.hyperliquid-testnet.xyz/ws"
         async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
             await ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "bbo", "coin": self.config.market.symbol}}))
@@ -155,13 +158,15 @@ class WsDataEngine:
                         self._valid_bbo_count += 1
                         if self._valid_bbo_count >= 2:
                             self._ready.set()
-                    log.debug(f"papertest: bbo received: bbo_ts_ms={self.latest_bbo.get('time')} bbo={self.latest_bbo.get('bbo')}")
+                    bbo_ts = self.latest_bbo.get("time")
+                    ts_text = format_ms(int(bbo_ts)) if isinstance(bbo_ts, int) else str(bbo_ts)
+                    self.log.debug(f"papertest bbo_received ts_bbo: {ts_text} data={format_bbo(self.latest_bbo)}", now=wall_ms())
                 elif channel == "candle":
                     interval = hyperliquid_interval(message, self.config.market.interval)
                     bar = hyperliquid_bar(message, interval, wall_ms())
                     self.bars[interval] = bar
                     self.telemetry.candles_received += 1
-                    log.debug(f"papertest: bar received: bar_ts_ms={bar.ts_ms} bar={bar}")
+                    self.log.debug(f"papertest bar_received tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)}", now=wall_ms())
 
     def _history(self, interval: str, limit: int) -> list[Bar]:
         if limit <= 0:
@@ -171,7 +176,7 @@ class WsDataEngine:
         end_ms = now_ms - interval_ms_value
         start_ms = end_ms - interval_ms_value * (limit + 10)
         url = "https://api.hyperliquid.xyz/info"
-        if self.config.runtime.exec_network == "testnet":
+        if self.config.runtime.mode == Mode.TESTNET:
             url = "https://api.hyperliquid-testnet.xyz/info"
         body = json.dumps({
             "type": "candleSnapshot",

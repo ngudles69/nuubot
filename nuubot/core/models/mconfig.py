@@ -2,18 +2,29 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+from nuubot.core.dtypes import MODE_NETWORKS, DataNetwork, ExecNetwork, Mode
 
 
 class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bot_id: int = 0
-    exec_network: Literal["mainnet", "testnet", "simnet", "backtest"]
-    data_network: Literal["mainnet", "testnet", "file"]
+    mode: Mode
     max_loop: int = Field(ge=0)
     loop_seconds: float = Field(ge=0)
     min_timer_interval_ms: int = Field(default=1000, ge=1)
+
+    @computed_field
+    @property
+    def data_network(self) -> DataNetwork:
+        return MODE_NETWORKS[self.mode][0]
+
+    @computed_field
+    @property
+    def exec_network(self) -> ExecNetwork:
+        return MODE_NETWORKS[self.mode][1]
 
 
 class MarketConfig(BaseModel):
@@ -67,10 +78,8 @@ class BotrunConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_mode_sections(self) -> "BotrunConfig":
-        if self.runtime.exec_network == "backtest" and self.runtime.data_network != "file":
-            raise ValueError("backtest exec_network requires data_network = file")
-        if self.runtime.data_network == "file" and self.backtest is None:
-            raise ValueError("file data_network requires [backtest]")
+        if self.runtime.mode == Mode.BACKTEST and self.backtest is None:
+            raise ValueError("backtest mode requires [backtest]")
         return self
 
 

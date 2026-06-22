@@ -1,93 +1,82 @@
 # handoff
 
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 ## focus
 
-Runtime design is paused. The unresolved issue is the correct live/paper vs
-backtest loop shape.
+Runtime flow, mode vocabulary, and bot log naming are implemented but not
+committed.
 
 ## current status
 
-- User stopped the session because the runtime discussion was going in circles.
-- Do not continue coding until the runtime workflow is clarified.
-- Current code has uncommitted runtime/backtest/signal changes.
-- Current papertest state is ambiguous:
-  - `wmic process where "CommandLine like '%ema-1h-papertest.toml%'"` did not
-    show a `uv.exe` or `python.exe` bot process in the latest check.
-  - `workspace/logs/runtime.log` still had recent websocket-looking lines.
-  - On resume, verify process status before assuming papertest is running.
+- Last commit: `33340fa Simplify runtime replay data flow`.
+- Worktree is dirty with mode/logging/docs/template changes after that commit.
+- Runtime still stays one shared `Runtime`.
+- Bot runtime modes are now first-class through `runtime.mode`.
+- `data_network` and `exec_network` are derived properties, not authored config
+  fields.
+- Sweep is not a bot runtime mode and does not use `bot_<mode>_<bot_id>.log`.
 
-## key unresolved design question
+## active agents
 
-Clarify the two workflows first, before more patches:
+None.
 
-1. Live/paper:
-   - Websocket receives market updates continuously.
-   - Websocket/data object ingests those updates into buffers.
-   - Clock waits on wall time.
-   - Runtime loop reads latest buffered state.
+## blockers
 
-2. Backtest:
-   - Backtest has an upfront load/build phase.
-   - It may build replay events/ticks from historical data.
-   - Backtest loop advances replay clock from those prepared events.
-   - Need decide whether replay event is a generic tick, a bar, or both.
-   - Need decide exactly what method names mean. User specifically said
-     "ingest" means a new bar/event arrived, not "select next replay bar".
-
-Main pending decision:
-
-- Keep one `Runtime` with two loop paths, or create separate live/backtest
-  runtimes.
-- User is not convinced current shape is correct.
-
-## files changed
-
-- `nuubot/core/runtime.py`
-- `nuubot/core/dtypes.py`
-- `nuubot/core/models/mconfig.py`
-- `nuubot/executor/tradebot.py`
-- `nuubot/signaler/emacross.py`
-- `nuubot/signaler/startnow.py`
-- `nuubot/core/telemetry.py`
-- `workspace/templates/ema-1h-backtest.toml`
-- `workspace/templates/ema-1h-papertest.toml`
-- `ema-1h-backtest.cmd`
-- `ema-1h-papertest.cmd`
-- `wiki/design/runtime-flow-compare.html`
-
-## proof run
-
-- `uv run python -m py_compile ...` passed after changes.
-- `uv run python -m nuubot.core.runtime -f workspace/templates/ema-1h-backtest.toml`
-  ran and produced results.
-- Backtest proof is not final because the design is disputed.
-
-## proof not run
-
-- No final papertest restart/5-minute validation after the latest design stop.
-- No commit after the current changes.
+None known.
 
 ## decisions made
 
-- `SignalerConfig.partial` defaults to `False`.
-- EMA 9/21 does not use partial bars by default.
-- Seed should use closed bars only.
-- Seed bars should not trigger trades later.
-- Current naming around `BacktestData.ingest()` is probably wrong because it
-  currently means selecting the next replay bar.
+- `Mode` enum lives in `nuubot/core/dtypes.py`.
+- `DataNetwork` enum lives in `nuubot/core/dtypes.py`.
+- `ExecNetwork` enum lives in `nuubot/core/dtypes.py`.
+- `MODE_NETWORKS` maps:
+  - `mainnet -> wsdata + mainnet`
+  - `testnet -> wsdata + testnet`
+  - `simnet -> wsdata + simulator`
+  - `backtest -> filedata + simulator`
+- Authored botrun config uses only `runtime.mode`.
+- `wsdata = WsDataEngine`.
+- `filedata = FileDataEngine`.
+- First four bot modes log to `workspace/logs/bot_<mode>_<bot_id>.log`.
+- Sweep has its own later log format.
+- Current old template filenames still contain `papertest`, but their config
+  mode is now `simnet`.
+
+## files changed
+
+- `nuubot/core/dtypes.py`
+- `nuubot/core/logger.py`
+- `nuubot/core/market_data.py`
+- `nuubot/core/models/mconfig.py`
+- `nuubot/core/runtime.py`
+- `nuubot/core/sweep.py`
+- `nuubot/executor/tradebot.py`
+- `tests/test_runtime_flow.py`
+- `wiki/**` runtime/mode/logging docs
+- `workspace/templates/*backtest.toml`
+- `workspace/templates/*papertest.toml`
+
+## proof run
+
+- Compile passed:
+  `rtk uv run python -m py_compile nuubot/core/dtypes.py nuubot/core/logger.py nuubot/core/config.py nuubot/core/models/mconfig.py nuubot/core/clock.py nuubot/core/market_data.py nuubot/core/runtime.py nuubot/core/sweep.py nuubot/core/risk.py nuubot/executor/tradebot.py nuubot/signaler/emacross.py nuubot/signaler/startnow.py`
+- Minimal runtime check passed:
+  `rtk uv run python -m tests.test_runtime_flow`
+- Backtest smoke passed:
+  `rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml`
+- Simnet smoke passed:
+  `rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-papertest.toml`
+- Latest logs verified:
+  - `workspace/logs/bot_backtest_11.log`
+  - `workspace/logs/bot_simnet_12.log`
+
+## proof not run
+
+- No sweep smoke after the `runtime.mode` cutover.
+- No commit after the current dirty changes.
 
 ## next action
 
-Do not patch first. Start by drawing the two workflows as named steps:
-
-| Step | Live/paper | Backtest |
-| --- | --- | --- |
-| upfront load/build | none beyond config/start websocket | load/build replay events |
-| clock driver | wall timer waits | replay event timestamp advances |
-| data arrival | websocket ingests continuously | prepared event/tick is consumed |
-| runtime evaluation | reads latest buffers | evaluates after replay event/time |
-
-Then decide whether one `Runtime` remains clean enough or whether
-`LiveRuntime`/`BacktestRuntime` is justified.
+Review the dirty diff, run a sweep smoke if desired, then commit. Optional
+cleanup after commit: rename `*papertest.toml` templates to `*simnet.toml`.

@@ -14,7 +14,7 @@ tags: [design, overview]
 1. [Runtime](runtime.md): standard bot loop, clock, command server, telemetry.
 2. [State](state.md): datastore, botrun state, exchange meta, reconciliation.
 3. [Strategy](strategy.md): risk, signalers, executors.
-4. [Backtest and Simulator](backtest-simulator.md): live/paper/backtest binding,
+4. [Backtest and Simulator](backtest-simulator.md): mode/network binding,
    simulator hooks.
 5. [Frontend](frontend.md): datastore viewer and command boundary.
 6. [Sweeps](sweeps.md): sweep, sweeprun, botrun, parameter shape.
@@ -33,7 +33,7 @@ without recreating the over-built shape of `nuutrader6`.
   obvious strategy flow, minimal ceremony.
 - Complexity is allowed, but it must live inside the object that owns it.
 - Keep risk first-class.
-- Keep simulator first-class for paper/backtest work.
+- Keep simulator first-class for simnet/backtest work.
 - Keep executors free-form and simple.
 - Keep datastore infrastructure separate from domain persistence operations.
 - Keep each bot as a standalone unit with its own local command surface.
@@ -83,7 +83,7 @@ without recreating the over-built shape of `nuutrader6`.
 - `Order`: order intent/evidence object.
 - `Fill`: fill evidence object.
 - `Event`: notable bot event for user/frontend display.
-- `Simulator`: first-class standalone module for paper/backtest behavior.
+- `Simulator`: first-class standalone module for simnet/backtest behavior.
 
 ## non-goals first
 
@@ -95,7 +95,7 @@ without recreating the over-built shape of `nuutrader6`.
 - No executor action-request framework.
 - No protocol/base class hierarchy unless real code needs it.
 - No Alembic/migration layer yet.
-- No multiple runtime classes for live/paper/backtest yet.
+- No multiple runtime classes for mainnet/testnet/simnet/backtest yet.
 - No freeze command yet.
 - No full telemetry framework yet.
 - No simulator implementation yet.

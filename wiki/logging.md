@@ -27,12 +27,12 @@ log = logger("workspace/logs/runtime.log")
 
 Every non-definition module uses module-level logging by default.
 
-Do not embed loggers inside normal objects:
+Do not embed loggers inside normal objects by default:
 
 - no passing log objects through constructors by default.
 
-Specific owner objects like bots, sweepruns, and sweeps may use class/object
-level logs when they need their own output file.
+Specific owner objects like bots, sweepruns, and sweeps use class/object level
+logs when they need their own output file.
 
 Default module logs go to `workspace/logs/runtime.log`. This catches normal
 runtime/module activity.
@@ -46,24 +46,26 @@ own log file, for example `workspace/logs/risk.log`. Change the file target
 back to the general runtime log when that debugging pass is done, unless the
 design explicitly says the module needs permanent separate logging.
 
-Standard log line format:
+Standard log line format uses dot milliseconds:
 
 ```text
-2026-06-21 01:18:38,393 [ INFO] process_risk
-2026-06-21 01:18:38,393 [DEBUG] results:
+2026-06-21 01:18:38.393 [ INFO] process_risk
+2026-06-21 01:18:38.393 [DEBUG] results:
 {
   "field": 112,
   "nested": {
     "field2": "abc"
   }
 }
-2026-06-21 01:18:38,393 [ INFO] next message
+2026-06-21 01:18:38.393 [ INFO] next message
 ```
 
 Standards:
 
 - Pad log level to five characters inside brackets.
 - Log the message on the timestamp line.
+- Use `ts_now: YYYY-MM-DD HH:MM:SS.mmm` instead of raw `now_ms`.
+- Bot-owned runtime logs go to `workspace/logs/bot_<network>_<bot_id>.log`.
 
 Recommendations:
 
@@ -99,10 +101,10 @@ classes.
 Example:
 
 ```text
-2026-06-21 01:18:38,393 [ERROR] load_config error: invalid account
-2026-06-21 01:18:38,393 [ERROR] runtime aborted.
-2026-06-21 01:18:38,393 [ERROR] sweeprun aborted.
-2026-06-21 01:18:38,393 [ERROR] sweep aborted.
+2026-06-21 01:18:38.393 [ERROR] load_config error: invalid account
+2026-06-21 01:18:38.393 [ERROR] runtime aborted.
+2026-06-21 01:18:38.393 [ERROR] sweeprun aborted.
+2026-06-21 01:18:38.393 [ERROR] sweep aborted.
 ```
 
 Example shape:
