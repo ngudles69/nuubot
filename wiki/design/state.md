@@ -19,7 +19,7 @@ Persist these tables first:
 - `order`
 - `fill`
 - `event`
-- `port`
+- `command`
 
 State ownership:
 
@@ -28,7 +28,7 @@ State ownership:
 - `Fill` writes to the fill table.
 - `Event` writes to the event table.
 - `ExchangeMeta` writes to the exchange meta table.
-- `CommandServer` writes to the port table.
+- `CommandServer` writes bot runtime ownership and command rows.
 - `Bot` writes bot lifecycle/status rows.
 - `Datastore` does not save domain objects.
 
@@ -41,15 +41,41 @@ update_state()  # update only; fail if row is missing unexpectedly
 delete_state()  # explicit delete only
 ```
 
+## entity map
+
+```text
+BOTRUN ||--o{ POSITION
+BOTRUN ||--o{ ORDER
+BOTRUN ||--o{ FILL
+BOTRUN ||--o{ EVENT
+BOTRUN ||--o{ COMMAND
+POSITION ||--o{ ORDER
+ORDER ||--o{ FILL
+SWEEP ||--o{ SWEEPRUN
+SWEEPRUN ||--o{ BOTRUN_REF
+EXCHANGE_META }o--|| VENUE
+```
+
+This is a logical relationship map only. Do not create database foreign keys.
+
 Bot run state:
 
 - Persist a redacted config snapshot with the bot run record.
-- Do not persist heartbeat to datastore for the first implementation.
+- Runtime start writes `pid`, `run_token`, `started_at`, and `last_seen_at`.
+- Runtime heartbeat updates `last_seen_at` using `bot_id` and `run_token`.
 - `stopped` and `error` are terminal states.
 - Do not restart a terminal bot in place.
 - If the user wants to continue, clone/create a new bot run from current market
   conditions.
 - Track dirty state when cleanup fails.
+
+Command state:
+
+- CLI inserts command rows.
+- Runtime polls command rows for its bot.
+- Runtime claims pending commands before executing them.
+- Runtime writes command result or error.
+- No Redis and no aiohttp until DB polling is proven too slow.
 
 ## exchange meta
 
@@ -155,3 +181,30 @@ Examples:
 - position opened
 - position closed
 - hedge loss
+
+## frontend read model
+
+Frontend is a separate scope from bot runtime. It reads datastore state and may
+insert command rows through the same command path used by CLI later.
+
+Frontend server responsibilities later:
+
+- List configured, running, and terminal bots.
+- Show bot status, PID evidence, run token, and heartbeat freshness.
+- Show latest risk score and signal state.
+- Show open/closed positions, orders, fills, and events.
+- Show dirty state when cleanup failed.
+- Show the redacted config snapshot used by a bot run.
+
+Minimum frontend server API routes later:
+
+```text
+GET /bots
+GET /bots/{bot_id}
+GET /bots/{bot_id}/positions
+GET /bots/{bot_id}/orders
+GET /bots/{bot_id}/fills
+GET /bots/{bot_id}/events
+```
+
+These routes read datastore only. They do not execute strategy logic.

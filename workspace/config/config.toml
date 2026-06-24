@@ -1,0 +1,23 @@
+[workspace]
+root = "."
+
+[general]
+mode = "simnet"
+
+[paths]
+config_dir = "workspace/config"
+data_dir = "workspace/data"
+db_dir = "workspace/db"
+logs_dir = "workspace/logs"
+results_dir = "workspace/results"
+
+[databases]
+server = "server"
+mainnet = "nuubot_mainnet"
+testnet = "nuubot_testnet"
+simnet = "nuubot_simnet"
+backtest = "nuubot_backtest"
+sweeps = "nuubot_sweeps"
+
+[hyperliquid]
+default_network = "testnet"

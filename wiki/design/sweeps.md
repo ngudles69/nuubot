@@ -130,7 +130,7 @@ Without a working profitable strategy, the rest of the runtime has no value.
 Sweeps exist to find strategy candidates quickly, then prove winners through
 the normal runtime.
 
-## two proof loops
+## execution shells
 
 Build two small proofs before building the full sweep system.
 
@@ -175,37 +175,9 @@ Skip:
 - full result schema.
 - mainnet/testnet/simnet mode.
 
-Current proof files:
+Proof commands live in `wiki/testing.md`.
 
-- `nuubot/core/sweep.py`
-- `nuubot/core/runtime.py`
-- `nuubot/executor/tradebot.py`
-- `nuubot/signaler/emacross.py`
-- `workspace/templates/ema-1h-fast.toml`
-- `workspace/templates/ema-1h-standard.toml`
-- `sweep-fast.cmd`
-- `sweep-runtime.cmd`
-
-## simple tradebot proof
-
-Use the smallest EMA crossover strategy that can produce wins, losses, and
-final PnL.
-
-```text
-for bar in bars:
-  signal = EMA(9) vs EMA(21)
-
-  if no position and EMA(9) crosses above EMA(21):
-    buy
-
-  if position and EMA(9) crosses below EMA(21):
-    sell
-
-  optional TP/SL can also close the trade
-
-close any open position at the final bar
-return result
-```
+## result shape
 
 Minimum result:
 
@@ -237,14 +209,6 @@ runs, not market time. A one-year 1m run should show:
 - total wall-clock time.
 - throughput in bars per second and configs per second.
 
-## development route
-
-1. Build `core/sweep.py` serial fast mode first.
-2. Build `core/sweep.py` serial standard mode second.
-3. Compare that both loops can run over the same market period.
-4. Add workers to fast mode only after serial proof works.
-5. Add DB writes only after useful result fields are stable.
-
 ## component reuse
 
 Reuse strategy primitives first:
@@ -263,7 +227,7 @@ Fast sweeps must not change trading logic.
 Runtime sweeps exist to validate that the same config works through the normal
 backtest loop.
 
-## comparison
+## executor comparison
 
 Compare executors by running normal sweepruns.
 

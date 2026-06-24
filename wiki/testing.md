@@ -54,3 +54,15 @@ rtk uv run python -m py_compile nuubot/core/config.py nuubot/core/models/mconfig
 ```bash
 rtk uv run python -m tests.test_runtime_flow
 ```
+
+## sweep fast check
+
+```bash
+rtk uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-fast.toml
+```
+
+## sweep standard check
+
+```bash
+rtk uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-standard.toml
+```

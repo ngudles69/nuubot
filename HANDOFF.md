@@ -1,21 +1,21 @@
 # handoff
 
-Last updated: 2026-06-22
+Last updated: 2026-06-23
 
 ## focus
 
-Runtime flow, mode vocabulary, and bot log naming are implemented but not
-committed.
+Runtime/object design contracts are being shaped before code moves. Design is
+now aligned with the planned executable pseudocode stage.
 
 ## current status
 
-- Last commit: `33340fa Simplify runtime replay data flow`.
-- Worktree is dirty with mode/logging/docs/template changes after that commit.
-- Runtime still stays one shared `Runtime`.
-- Bot runtime modes are now first-class through `runtime.mode`.
-- `data_network` and `exec_network` are derived properties, not authored config
-  fields.
-- Sweep is not a bot runtime mode and does not use `bot_<mode>_<bot_id>.log`.
+- Last commit: `f43f128 Make runtime modes first-class`.
+- Worktree is dirty with docs-only design consolidation and object-contract
+  drafts.
+- `progflow.pdf` is untracked and intentionally left alone for now.
+- Runtime main flow is approved; do not change the runtime sequence.
+- Next design proof should be a runnable executable pseudocode/spec that shows
+  top-level object interaction and runtime sequence.
 
 ## active agents
 
@@ -27,56 +27,60 @@ None known.
 
 ## decisions made
 
-- `Mode` enum lives in `nuubot/core/dtypes.py`.
-- `DataNetwork` enum lives in `nuubot/core/dtypes.py`.
-- `ExecNetwork` enum lives in `nuubot/core/dtypes.py`.
-- `MODE_NETWORKS` maps:
-  - `mainnet -> wsdata + mainnet`
-  - `testnet -> wsdata + testnet`
-  - `simnet -> wsdata + simulator`
-  - `backtest -> filedata + simulator`
-- Authored botrun config uses only `runtime.mode`.
-- `wsdata = WsDataEngine`.
-- `filedata = FileDataEngine`.
-- First four bot modes log to `workspace/logs/bot_<mode>_<bot_id>.log`.
-- Sweep has its own later log format.
-- Current old template filenames still contain `papertest`, but their config
-  mode is now `simnet`.
+- Stop adding deeper design detail once the object shape is good enough.
+- Code implementation resumes after the design shape and executable pseudocode
+  are reviewed.
+- `wiki/design/objects/runtime.md` is the runtime object design; runtime can be
+  the largest object file.
+- Runtime is the master composer and should not own indicator loading,
+  signaler internals, simulator internals, ledger internals, orders, or fills.
+- Signaler owns an ensemble of indicators.
+- Indicator contract is `init(config)`, `seed(data)`,
+  `ingest(data, partial=False)`, `row(at=None, partial=False)`.
+- Indicator rows expose `ts` and `data`.
+- `row(..., partial=False)` defaults to the latest closed row.
+- Live and backtest use the same indicator/signaler code path; backtest passes
+  replay time through `at`.
+- Signaler owns stale/missing-data policy because market, social, news, and
+  economic data have different validity rules.
+- Target package shape removes `nuubot/core` later, but code has not been moved.
 
 ## files changed
 
-- `nuubot/core/dtypes.py`
-- `nuubot/core/logger.py`
-- `nuubot/core/market_data.py`
-- `nuubot/core/models/mconfig.py`
-- `nuubot/core/runtime.py`
-- `nuubot/core/sweep.py`
-- `nuubot/executor/tradebot.py`
-- `tests/test_runtime_flow.py`
-- `wiki/**` runtime/mode/logging docs
-- `workspace/templates/*backtest.toml`
-- `workspace/templates/*papertest.toml`
+- `HANDOFF.md`
+- `.project/plans/runtime-flow-execplan.md`
+- `wiki/AGENTS.md`
+- `wiki/design/AGENTS.md`
+- `wiki/design/overview.md`
+- `wiki/design/state.md`
+- `wiki/design/strategy.md`
+- `wiki/design/sweeps.md`
+- `wiki/testing.md`
+- `wiki/design/objects/**`
+- Deleted stale spread-out design docs:
+  - `wiki/architecture.md`
+  - `wiki/runtimeflow.md`
+  - `wiki/design/runtime.md`
+  - `wiki/design/backtest-simulator.md`
+  - `wiki/design/frontend.md`
+  - `wiki/design/design.html`
+  - `wiki/design/process.html`
+  - `wiki/design/runtime-flow-compare.html`
 
 ## proof run
 
-- Compile passed:
-  `rtk uv run python -m py_compile nuubot/core/dtypes.py nuubot/core/logger.py nuubot/core/config.py nuubot/core/models/mconfig.py nuubot/core/clock.py nuubot/core/market_data.py nuubot/core/runtime.py nuubot/core/sweep.py nuubot/core/risk.py nuubot/executor/tradebot.py nuubot/signaler/emacross.py nuubot/signaler/startnow.py`
-- Minimal runtime check passed:
-  `rtk uv run python -m tests.test_runtime_flow`
-- Backtest smoke passed:
-  `rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml`
-- Simnet smoke passed:
-  `rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-papertest.toml`
-- Latest logs verified:
-  - `workspace/logs/bot_backtest_11.log`
-  - `workspace/logs/bot_simnet_12.log`
+- Stale deleted-doc reference scan passed:
+  `rtk rg -n "design/runtime\\.md|\\[Runtime\\]\\(runtime\\.md\\)|\`runtime\\.md\`|wiki/design/runtime\\.md|backtest-simulator|frontend\\.md|design\\.html|process\\.html|runtimeflow|architecture\\.md" wiki .project AGENTS.md`
+- Whitespace check passed:
+  `rtk git diff --check`
 
 ## proof not run
 
-- No sweep smoke after the `runtime.mode` cutover.
-- No commit after the current dirty changes.
+- No code tests run; this pass is docs-only.
+- No executable pseudocode/spec created yet.
+- No commit after the current docs changes.
 
 ## next action
 
-Review the dirty diff, run a sweep smoke if desired, then commit. Optional
-cleanup after commit: rename `*papertest.toml` templates to `*simnet.toml`.
+Create the executable pseudocode/spec for runtime sequence review. Do not move
+code or add implementation detail until the object design shape is approved.

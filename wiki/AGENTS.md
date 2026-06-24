@@ -23,21 +23,19 @@ Rules for files under `wiki/**`.
 
 1. Core:
   - `project.md`: vision, objective, and guidance.
-  - `architecture.md`: architecture notes.
   - `logging.md`: logging format and cascading error path.
   - `testing.md`: compile check and smoke test commands.
   - `repomap.md`: repo map.
 2. Design:
   - `design/AGENTS.md`: design map.
-  - `design/overview.md`: goals, decisions, first-class objects, non-goals.
-  - `design/runtime.md`: standard bot loop, clock, command server, telemetry.
-  - `design/state.md`: datastore, botrun state, exchange meta, reconciliation.
+  - `design/overview.md`: goals, decisions, object map, non-goals.
+  - `design/objects/AGENTS.md`: object design map.
+  - `design/objects/runtime.md`: master composer, runtime loop, modes,
+    clock/replay, command server, telemetry, simulator binding.
+  - `design/state.md`: datastore, exchange meta, positions/orders/fills,
+    events, frontend read model.
   - `design/strategy.md`: risk, signalers, executors.
-  - `design/backtest-simulator.md`: mode/network binding and simulator.
-  - `design/frontend.md`: datastore viewer and command boundary.
   - `design/sweeps.md`: sweep, sweeprun, botrun, parameters.
-  - `design/design.html`: database ER diagram.
-  - `design/process.html`: high-level component and contract map.
 3. Coding:
   - `coding/rules.md`: coding rules.
   - `coding/samples/scaffold.md`: new-file scaffold samples.

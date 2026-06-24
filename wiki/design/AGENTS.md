@@ -11,12 +11,11 @@ Rules for files under `wiki/design/**`.
 
 ## Files
 
-1. `overview.md`: design overview, goals, decisions, first-class objects.
-2. `runtime.md`: standard bot loop, clock, command server, telemetry.
-3. `state.md`: datastore, botrun state, exchange meta, reconciliation.
-4. `strategy.md`: risk, signalers, executors.
-5. `backtest-simulator.md`: mode/network binding and simulator.
-6. `frontend.md`: datastore viewer and command boundary.
-7. `sweeps.md`: sweep, sweeprun, botrun, parameters.
-8. `design.html`: database ER diagram.
-9. `process.html`: high-level component and contract map.
+1. `overview.md`: goals, decisions, object map, non-goals.
+2. `objects/AGENTS.md`: object design map.
+3. `objects/runtime.md`: master composer, runtime loop, modes, clock/replay,
+   command server, telemetry, simulator binding.
+4. `state.md`: datastore, exchange meta, positions/orders/fills, events,
+   frontend read model.
+5. `strategy.md`: risk, signalers, executors.
+6. `sweeps.md`: sweep, sweeprun, botrun, parameters.

@@ -112,10 +112,6 @@ Select optimized executors explicitly in config:
 name = "grid_fast"
 ```
 
-If an optimized executor reduces checks, validate it against the canonical
-executor with the same data and config. Compare result summary and trade trace
-before using it for large data sets.
-
 `ExchangeAccount` must support batch submit shapes needed by executor trade:
 
 ```text

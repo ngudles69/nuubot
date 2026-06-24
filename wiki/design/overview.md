@@ -11,15 +11,12 @@ tags: [design, overview]
 
 ## files
 
-1. [Runtime](runtime.md): standard bot loop, clock, command server, telemetry.
-2. [State](state.md): datastore, botrun state, exchange meta, reconciliation.
-3. [Strategy](strategy.md): risk, signalers, executors.
-4. [Backtest and Simulator](backtest-simulator.md): mode/network binding,
-   simulator hooks.
-5. [Frontend](frontend.md): datastore viewer and command boundary.
-6. [Sweeps](sweeps.md): sweep, sweeprun, botrun, parameter shape.
-7. [ER Diagram](design.html): database design diagram.
-8. [Component Map](process.html): high-level component and contract map.
+1. [Objects](objects/AGENTS.md): object boundaries and contracts.
+2. [Runtime](objects/runtime.md): master composer, loop, clock, command table,
+   telemetry.
+3. [State](state.md): datastore, botrun state, exchange meta, reconciliation.
+4. [Strategy](strategy.md): risk, signalers, executors.
+5. [Sweeps](sweeps.md): sweep, sweeprun, botrun, parameter shape.
 
 ## problem
 
@@ -47,7 +44,9 @@ without recreating the over-built shape of `nuutrader6`.
 - Treat credentials as part of config for now.
 - Persist config snapshots with credentials redacted or omitted.
 - Likely use `async_hyperliquid` for Hyperliquid exchange access.
-- Use PostgreSQL with SQLAlchemy.
+- Use SQLAlchemy for datastore access.
+- Current CLI/datastore prototype uses local SQLite under `workspace/db`.
+- PostgreSQL remains the intended later production engine.
 - `datastore.py` only owns database infrastructure:
   - connect
   - disconnect
@@ -64,33 +63,60 @@ without recreating the over-built shape of `nuutrader6`.
   as production runtime code.
 - `workspace/data/**` holds historical data; current data is Binance historical
   data for backtesting.
+- Target package shape removes `nuubot/core`:
+  - `nuubot/cli`
+  - `nuubot/runtime`
+  - `nuubot/command`
+  - `nuubot/config`
+  - `nuubot/account`
+  - `nuubot/data`
+  - `nuubot/datastore`
+  - `nuubot/signaler`
+  - `nuubot/executor`
+  - `nuubot/sweep`
+- Current implementation still uses `nuubot/core` until the package move is
+  performed.
 
-## first-class objects
+## object map
 
-- `Bot`: runtime coordinator.
-- `ConfigData`: TOML-loaded config, including credentials.
-- `Datastore`: DB infrastructure only.
-- `CommandServer`: per-bot `aiohttp` command surface.
-- `Clock`: runtime time source.
-- `ExchangeData` / `ExchangeWsData`: BBO and candle data source.
-- `ExchangeMeta`: exchange reference metadata.
-- `ExchangeAccount`: account, balances, orders, positions, exchange submits.
-- `Risk`: first-class risk scorer.
-- `Signaler`: signal source.
-- `Executor`: free-form execution object.
-- `Cloid`: client order id helper copied from `nuutrader6` first.
-- `Position`: accounting parent object.
-- `Order`: order intent/evidence object.
-- `Fill`: fill evidence object.
-- `Event`: notable bot event for user/frontend display.
-- `Simulator`: first-class standalone module for simnet/backtest behavior.
+| Object | File | Role |
+| --- | --- | --- |
+| `Runtime` | [objects/runtime.md](objects/runtime.md) | Master composer. |
+| `Config` | [objects/config.md](objects/config.md) | Simple validated config holder. |
+| `Account` | [objects/account.md](objects/account.md) | Exchange account composer, simulator, ledger. |
+| `Ledger` | [objects/ledger.md](objects/ledger.md) | Position, order, fill collection. |
+| `Datastore` | [objects/datastore.md](objects/datastore.md) | PostgreSQL and SQLAlchemy boundary. |
+| `WsData` / `FileData` | [objects/data.md](objects/data.md) | Live websocket data and historical file data. |
+| `Signaler` | [objects/signaler.md](objects/signaler.md) | Indicators and signal consensus. |
+| `Executor` | [objects/executor.md](objects/executor.md) | Strategy execution logic. |
+| `Cli` | [objects/cli.md](objects/cli.md) | Bot manager program. |
+| `CommandServer` | [objects/command.md](objects/command.md) | Runtime command-table owner. |
+
+## component map
+
+```text
+Sweep -> Sweeprun -> Botrun config -> Runtime/Bot
+Cli -> Datastore -> bot rows
+Cli -> Runtime process
+Cli -> command table
+Runtime/Bot -> Clock -> ExchangeData snapshot
+Runtime/Bot -> CommandServer -> command table
+Runtime/Bot -> Risk -> Signaler -> Executor
+Executor -> Account -> Ledger -> Position -> Order -> Fill
+Runtime/Domain objects -> Datastore
+Frontend later -> Datastore + per-bot CommandServer
+```
+
+## connection rule
+
+Objects are independent except for their defined child objects and allowed
+connections. If code needs a new connection, ask the user and update the object
+design file before using it.
 
 ## non-goals first
 
 - No central server.
-- No DB command queue.
 - No frontend implementation.
-- No stale port cleanup CLI.
 - No runtime-forced risk exit yet.
 - No executor action-request framework.
 - No protocol/base class hierarchy unless real code needs it.
@@ -108,9 +134,8 @@ without recreating the over-built shape of `nuutrader6`.
 - DB tables are created if missing.
 - Bot row is written.
 - Redacted config snapshot is stored with the bot row.
-- Command server binds a DB-assigned localhost port.
-- Command server responds to `GET /ping`.
-- Command server responds to `GET /status`.
+- Runtime writes PID, run token, status, and heartbeat to the bot row.
+- Runtime polls the command table for commands.
 - Port is released on terminal stop/error.
 - Dirty state is visible if cleanup fails.
 - `Risk.score()` exists and returns a score.

@@ -9,9 +9,10 @@ tags: [runtime, backtest, clock, data-engine]
 
 # Runtime Flow ExecPlan
 
-Objective: implement the runtime flow in `wiki/runtimeflow.md` without splitting
-`Runtime`: live/paper stays wall-time driven, backtest becomes timestamp-batch
-data driven, and `Runtime.loop_once()` stays shared.
+Objective: implement the runtime flow now documented in
+`wiki/design/objects/runtime.md` without splitting `Runtime`: live/paper stays
+wall-time driven, backtest becomes timestamp-batch data driven, and
+`Runtime.loop_once()` stays shared.
 
 Implementation result:
 
@@ -210,11 +211,8 @@ Multi-interval rule:
 
 ### 8. Docs
 
-- Update `wiki/design/runtime.md` and `wiki/design/backtest-simulator.md` to
-  match `wiki/runtimeflow.md`.
-- Keep `wiki/runtimeflow.md` as the row-by-row comparison artifact.
-- Remove or mark `wiki/design/runtime-flow-compare.html` as obsolete if it
-  conflicts.
+- Runtime flow, mode binding, replay behavior, and simulator binding are now
+  consolidated in `wiki/design/objects/runtime.md`.
 
 ## Proof Completed
 
