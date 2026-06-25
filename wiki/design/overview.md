@@ -45,13 +45,13 @@ without recreating the over-built shape of `nuutrader6`.
 - Persist config snapshots with credentials redacted or omitted.
 - Likely use `async_hyperliquid` for Hyperliquid exchange access.
 - Use SQLAlchemy for datastore access.
-- Current CLI/datastore prototype uses local SQLite under `workspace/db`.
+- Current CLI/datastore prototype uses local SQLite files under `workspace/db`.
 - PostgreSQL remains the intended later production engine.
 - `datastore.py` only owns database infrastructure:
-  - connect
-  - disconnect
-  - create database if missing
-  - create all tables if missing
+  - initialize every configured database
+  - create all SQLAlchemy tables and indexes if missing
+  - expose SQLAlchemy sessions
+  - dispose owned engines
 - Datastore operations belong to the domain objects that own the meaning.
 - Use explicit persistence verbs:
   - `insert_state()`
@@ -81,6 +81,7 @@ without recreating the over-built shape of `nuutrader6`.
 
 | Object | File | Role |
 | --- | --- | --- |
+| `Nuubot` | [objects/nuubot.md](objects/nuubot.md) | Shared infra owner. |
 | `Runtime` | [objects/runtime.md](objects/runtime.md) | Master composer. |
 | `Config` | [objects/config.md](objects/config.md) | Simple validated config holder. |
 | `Account` | [objects/account.md](objects/account.md) | Exchange account composer, simulator, ledger. |
@@ -96,9 +97,11 @@ without recreating the over-built shape of `nuutrader6`.
 
 ```text
 Sweep -> Sweeprun -> Botrun config -> Runtime/Bot
-Cli -> Datastore -> bot rows
+Program entrypoint -> Nuubot -> Config + Datastore
+Cli -> Datastore session -> bot rows
 Cli -> Runtime process
 Cli -> command table
+Runtime/Bot -> Nuubot
 Runtime/Bot -> Clock -> ExchangeData snapshot
 Runtime/Bot -> CommandServer -> command table
 Runtime/Bot -> Risk -> Signaler -> Executor
@@ -112,6 +115,23 @@ Frontend later -> Datastore + per-bot CommandServer
 Objects are independent except for their defined child objects and allowed
 connections. If code needs a new connection, ask the user and update the object
 design file before using it.
+
+## parameter order
+
+When an object receives shared infra, identity, and qualifiers, pass them in
+this order:
+
+```text
+nuubot
+object id
+qualifiers, callbacks, or options
+```
+
+Example:
+
+```text
+CommandServer(nuubot, bot_id, runtime_callbacks)
+```
 
 ## non-goals first
 

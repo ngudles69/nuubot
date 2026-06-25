@@ -1,7 +1,7 @@
 ---
 title: signaler object
 created: 2026-06-23
-updated: 2026-06-23
+updated: 2026-06-25
 type: wiki
 status: active
 tags: [design, objects, signaler, indicators]
@@ -36,8 +36,8 @@ External commands:
 - `init()`
 - `start(data)`
 - `stop()`
-- `loop_once(snapshot, at=None, partial=False)`
-- `signal()`
+- `observe(snapshot)`
+- `loop_once()`
 - `exit()`
 - `telemetry()`
 
@@ -71,10 +71,10 @@ or any shape the owning Signaler understands.
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
 | `init()` | Signaler config. | Initialized Signaler. | Builds indicator ensemble and validates signaler-level rules. |
-| `start(data)` | Data object/history source. | Seeded Signaler. | Seeds every owned indicator. Fails loud if required seed data is missing. |
+| `start(data)` | Data object/history source. | Seeded Signaler. | Seeds every owned indicator or child signaler. Fails loud if required seed data is missing. |
 | `stop()` | Running Signaler. | Stopped Signaler. | Stops owned indicators and releases owned resources. |
-| `loop_once(snapshot, at=None, partial=False)` | Market snapshot and optional time. | Standardized Signal. | Ingests relevant data into indicators, reads indicator rows, validates freshness, and applies consensus. |
-| `signal()` | Current signaler state. | Last standardized Signal. | Returns last signal without recalculating. |
+| `observe(snapshot)` | Market snapshot. | Boolean new-signalable data state. | Filters usable bars, rejects stale/duplicate closed bars, and records progress for Runtime telemetry. |
+| `loop_once()` | Previously observed usable market data. | Standardized Signal decision. | Runs owned signalers/indicators and applies signal priority/consensus. Runtime does not loop over child signalers. |
 | `exit()` | Current signaler state. | Boolean. | Returns whether Signaler requests runtime stop. |
 | `telemetry()` | Current signaler state. | JSON-safe telemetry. | Returns indicator diagnostics, freshness state, and consensus data. |
 | `Indicator.init(config)` | Indicator config. | Initialized Indicator. | Validates indicator config and prepares empty state. |
@@ -89,6 +89,7 @@ Internal functions:
 - validate signaler params.
 - initialize all indicators.
 - seed all indicators.
+- select usable bars from the runtime market snapshot.
 - ingest new data into all relevant indicators.
 - assess each indicator.
 - combine indicator assessments into consensus.
@@ -141,6 +142,9 @@ Freshness rule:
 - Runtime should not know indicator internals.
 - Runtime talks to one `Signaler`, not many signalers.
 - Signaler owns all indicator loading and interpretation.
+- Signaler owns child-signal/indicator eligibility, seeding, and signal
+  priority. Runtime only asks whether signalable data exists and then asks for
+  one decision.
 - Start with simple signalers; split deeper only when the object grows.
 - Indicator does not return a standardized trading signal. Signaler converts
   indicator rows into one standardized signal.

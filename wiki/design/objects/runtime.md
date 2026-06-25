@@ -1,7 +1,7 @@
 ---
 title: runtime design
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-25
 type: wiki
 status: active
 tags: [design, runtime, bot]
@@ -20,11 +20,10 @@ composed object.
 
 Allowed composed objects:
 
-- `Config`
+- `Nuubot`
 - `Clock`
 - `WsData` or `FileData`
 - `Account`
-- `Datastore`
 - `Signaler`
 - `Executor`
 - `CommandServer`
@@ -48,6 +47,7 @@ External commands:
 Runtime receives:
 
 - config file path through the module entrypoint.
+- shared infra from `Nuubot`.
 - timer events from `Clock`.
 - market snapshots from `WsData` or `FileData`.
 
@@ -63,11 +63,11 @@ Runtime outputs:
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Config path or loaded Config. | Initialized Runtime. | Initializes CommandServer first, then loads config and composes owned objects. If CommandServer cannot write runtime ownership to DB, startup fails. |
+| `init()` | Config path or loaded Config. | Initialized Runtime. | Sets up Nuubot infra, initializes CommandServer, and composes owned runtime objects. If CommandServer cannot write runtime ownership to DB, startup fails. |
 | `start()` | Initialized Runtime. | Running Runtime. | Starts owned objects in runtime order and registers the runtime timer. |
 | `stop()` | Running or failed Runtime. | Stopped Runtime. | Stops owned objects and exposes dirty cleanup state if cleanup fails. |
 | `loop()` | Running Runtime. | Completed run. | Uses wall clock for live modes and replay loop for backtest. Does not alter `loop_once` sequence. |
-| `loop_once(event)` | Clock event. | One runtime unit of work. | Preserves approved main flow: max-loop check, market snapshot, signaler, risk, executor, telemetry/exit. |
+| `loop_once(event)` | Clock event. | One runtime unit of work. | Preserves approved main flow: max-loop check, market snapshot, signaler observation, risk, signal decision, executor, telemetry/exit. |
 | `exit(reason)` | Reason string. | Runtime stop requested. | Cancels runtime timer and records stop reason. |
 | `status()` | Current runtime state. | JSON-safe status. | Returns liveness/status/telemetry for command server. |
 
@@ -75,7 +75,7 @@ Runtime outputs:
 
 Internal functions:
 
-- load config.
+- set up Nuubot infra.
 - initialize command server.
 - compose owned objects.
 - initialize owned objects.
@@ -113,42 +113,135 @@ Internal functions:
 The runtime loop is the design anchor. Keep it clear before filling components
 with implementation detail.
 
-Canonical loop:
+Runtime trigger:
 
 ```text
 while running:
   await Clock.tick()
 ```
 
-`Bot.loop_once(event)` is the bot unit of work:
+`Runtime.loop_once(event)` is the bot unit of work.
+
+Runtime focuses on sequence:
+
+- how loops are triggered.
+- what inputs are gathered.
+- what checks run.
+- in what order checks run.
+- what object receives each action.
+- what status is written at the end.
+
+Runtime does not own signaler internals, executor internals, account internals,
+ledger internals, or datastore row meaning.
+
+Canonical loop:
 
 ```text
-Bot.loop_count += 1
+loop_once(event)
+  now = Clock.now_ms()
 
-if max_loop reached:
-  stop runtime
-  return
+  command = CommandServer.poll()
 
-market = await ExchangeData.snapshot(Clock.now_ms())
-if no market:
-  stop runtime
-  return
+  if command is kill:
+    exit("kill")
+    # Runtime exits. Bot state stays recoverable.
+    end_loop()
+    return
 
-if market bar is not new:
-  return
+  if max_loop reached:
+    exit("max_loop")
+    end_loop()
+    return
 
-risk_score = await Risk.score()
-if Risk.exit():
-  stop runtime
-  return
+  market = Data.snapshot(now)
+  signaler_state = Signaler.observe(market)
+  executor_state = Executor.reconcile(market)
 
-signal = await Signaler.loop_once(market, at=Clock.now_ms())
-if Signaler.exit():
-  stop runtime
-  return
+  Reconcile is a must-do step before any non-kill operation. Nothing trades,
+  closes, stops, checks terminal state, or submits orders before reconcile.
+  Fresh start should reconcile to flat/no-op state. Restart should reconcile
+  to the current exchange/account/ledger state.
 
-await Executor.loop_once(market, signal)
+  if executor_state is terminal stopped or terminal error:
+    exit("terminal")
+    end_loop()
+    return
+
+  if command is stop:
+    Executor.request_terminal_stop()
+
+  if Executor.is_active():
+    risk_state = Risk.score()
+    if Risk.exit():
+      Executor.request_terminal_stop()
+    if Signaler.exit():
+      Executor.request_terminal_stop()
+    if Executor.exit():
+      Executor.request_terminal_stop()
+    if Executor.is_closing():
+      await Executor.handle_order_exits(market)
+      if Executor.is_closed():
+        Executor.mark_terminal_stopped()
+        exit("stopped")
+      end_loop()
+      return
+
+  if Executor.is_flat():
+    if signaler_state has no usable entry data:
+      end_loop()
+      return
+    decision = await Signaler.loop_once()
+    if decision is entry:
+      await Executor.enter(decision)
+    end_loop()
+    return
+
+  risk_state = Risk.score()
+  await Executor.handle_order_exits(market)
+  if Executor.can_submit_orders():
+    await Executor.submit_orders(market, signaler_state, risk_state)
+
+  end_loop:
+    CommandServer.heartbeat()
+    Datastore writes status/events through owning objects
+    log telemetry
 ```
+
+Runtime command stop semantics:
+
+- `kill`: immediate runtime exit. Do not cancel orders and do not close
+  positions. The next runtime start must reconcile existing exchange/account
+  state and continue from that state.
+- `stop`: graceful bot close. Runtime keeps looping as long as needed while
+  Executor cancels/settles orders and closes positions. Once Executor reports
+  closed, the bot is marked terminal stopped and cannot be restarted.
+- Terminal `stopped` and terminal `error` end the bot. They are not restartable
+  states.
+- Non-terminal runtime exit, including `kill`, is restartable. Restart uses the
+  same loop as first start: reconcile current exchange/account/ledger state,
+  then continue from that state.
+- Fresh start also runs reconcile. The expected result is flat/no-op, not a
+  special startup branch.
+- Only `kill` can skip reconcile, because no trading/closing operation runs
+  after it.
+
+Current runnable implementation is still simpler. It has the same clock/replay
+trigger shape and the current working sequence is:
+
+```text
+max-loop check
+market snapshot
+Signaler.observe(snapshot)
+Risk.score() / Risk.exit()
+Signaler.loop_once() / Signaler.exit()
+Executor.loop_once(decision.bar, decision.signal)
+Executor.exit()
+telemetry / max-loop check
+```
+
+Add command polling, started-state handling, reconcile, order-exit handling,
+new-order submission, and DB status writes only when the owning objects are in
+place.
 
 Runtime binding:
 
@@ -228,8 +321,8 @@ Bot
   ExchangeData / ExchangeWsData
   ExchangeAccount
   Risk
-  Signaler list
-  Executor list
+  Signaler
+  Executor
   Simulator when running simnet/backtest later
 ```
 
@@ -365,7 +458,7 @@ own a port.
 Runtime startup:
 
 ```text
-command = CommandServer(bot_id, datastore, runtime_callbacks)
+command = CommandServer(nuubot, bot_id, runtime_callbacks)
 command.init()
 ```
 

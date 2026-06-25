@@ -30,6 +30,7 @@ Rules for files under `wiki/**`.
   - `design/AGENTS.md`: design map.
   - `design/overview.md`: goals, decisions, object map, non-goals.
   - `design/objects/AGENTS.md`: object design map.
+  - `design/objects/nuubot.md`: shared infra owner.
   - `design/objects/runtime.md`: master composer, runtime loop, modes,
     clock/replay, command server, telemetry, simulator binding.
   - `design/state.md`: datastore, exchange meta, positions/orders/fills,

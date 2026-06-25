@@ -18,8 +18,8 @@ and shows bot state.
 
 Allowed connections:
 
-- `Config`
-- `Datastore`
+- `Nuubot`
+- `Datastore` through `Nuubot`
 - runtime process launcher
 - command table
 
@@ -46,8 +46,8 @@ Future command:
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | CLI args/config. | Initialized CLI. | Loads workspace config and composes Datastore. Does not start bots. |
-| `start()` | Initialized CLI. | Ready CLI. | Connects Datastore and prepares command execution. |
+| `init()` | CLI args/config. | Initialized CLI. | Parses command args. Does not start bots. |
+| `start()` | Initialized CLI. | Ready CLI. | Calls `Nuubot.setup()` and prepares command execution. |
 | `stop()` | Ready CLI. | Stopped CLI. | Closes CLI-owned resources. Does not stop running bots unless command asked for it. |
 | `create(config_path)` | Bot config/template path. | Configured bot row. | Inserts a new bot row with config and resets runtime fields. Status becomes `configured`. |
 | `delete(bot_id)` | Existing bot id. | Deleted bot row/config. | Allowed only when bot status is `configured`. Fails loud otherwise. |
@@ -63,10 +63,9 @@ Future command:
 Internal functions:
 
 - parse CLI args.
-- load workspace config.
-- connect datastore.
+- initialize Nuubot infra.
 - load bot config through `Config`.
-- insert/delete/clone bot rows.
+- insert/delete/clone bot rows through SQLAlchemy sessions.
 - spawn runtime process.
 - insert command rows for runtime commands.
 - check bot PID/heartbeat evidence for ping/status.

@@ -1,21 +1,41 @@
 # handoff
 
-Last updated: 2026-06-23
+Last updated: 2026-06-25
 
 ## focus
 
-Runtime/object design contracts are being shaped before code moves. Design is
-now aligned with the planned executable pseudocode stage.
+Runtime cleanup is in progress after the datastore/Nuubot simplification.
+Runtime should read close to BlackBot: visible clock/replay flow, clear loop
+sequence, one composed object call for signaler/executor/risk behavior.
 
 ## current status
 
-- Last commit: `f43f128 Make runtime modes first-class`.
-- Worktree is dirty with docs-only design consolidation and object-contract
-  drafts.
+- Last commit: `9043e0b Add object design and command datastore scaffold`.
+- Worktree has the uncommitted datastore/Nuubot/runtime/signaler cleanup.
 - `progflow.pdf` is untracked and intentionally left alone for now.
 - Runtime main flow is approved; do not change the runtime sequence.
-- Next design proof should be a runnable executable pseudocode/spec that shows
-  top-level object interaction and runtime sequence.
+- Datastore is now infra-only: `Datastore(config).init()`, `session()`,
+  `stop()`.
+- `Nuubot.setup()` owns config loading and datastore initialization.
+- CLI owns bot catalog commands and uses SQLAlchemy sessions/models directly.
+- Runtime creates `self.nuubot = nuubot_setup()` and will pass that to
+  CommandServer when CommandServer is implemented.
+- Runtime now talks to one `Signaler` composer. The composer owns child
+  signaler creation, seeding, eligibility, and signal selection.
+- Constructor/input order is locked: `nuubot`, then object id, then qualifiers
+  or callbacks.
+- Runtime target loop is phase-based: gather command/market/signaler/risk/
+  executor inputs, check exits only after started, check entries before
+  started, then active processing for recon/order exits/new orders, then
+  heartbeat/status persistence.
+- Fresh start and restart use the same loop: Executor reconciles exchange/
+  account/ledger state first. Fresh start should reconcile to flat/no-op.
+- Reconcile is mandatory before every non-kill operation. Only `kill` skips it
+  because no trading/closing operation follows.
+- `kill` exits the runtime process without canceling orders or closing
+  positions; the bot remains restartable.
+- Graceful `stop` closes the bot through Executor, then marks terminal stopped.
+  Terminal stopped/error bots cannot be restarted.
 
 ## active agents
 
@@ -27,60 +47,75 @@ None known.
 
 ## decisions made
 
-- Stop adding deeper design detail once the object shape is good enough.
-- Code implementation resumes after the design shape and executable pseudocode
-  are reviewed.
-- `wiki/design/objects/runtime.md` is the runtime object design; runtime can be
-  the largest object file.
-- Runtime is the master composer and should not own indicator loading,
-  signaler internals, simulator internals, ledger internals, orders, or fills.
-- Signaler owns an ensemble of indicators.
-- Indicator contract is `init(config)`, `seed(data)`,
-  `ingest(data, partial=False)`, `row(at=None, partial=False)`.
-- Indicator rows expose `ts` and `data`.
-- `row(..., partial=False)` defaults to the latest closed row.
-- Live and backtest use the same indicator/signaler code path; backtest passes
-  replay time through `at`.
-- Signaler owns stale/missing-data policy because market, social, news, and
-  economic data have different validity rules.
-- Target package shape removes `nuubot/core` later, but code has not been moved.
+- Datastore has no `start()`.
+- Datastore does not own bot lifecycle commands.
+- Datastore `init()` creates every configured database, table, and SQLAlchemy
+  metadata index if missing.
+- Current implementation uses one SQLite file per configured DB name under
+  `workspace/db`; PostgreSQL remains later.
+- `create_databases()`, `create_tables()`, and `create_indexes()` are not public
+  datastore commands.
+- `Nuubot` is the infra owner for `config` and `datastore`.
+- Runtime uses `Nuubot` for infra, but the approved runtime loop order is
+  unchanged.
+- Runtime and Clock interaction should stay explicit in Runtime.
+- Signaler/account/executor internals should stay inside their own objects.
+- Current runtime implementation is intentionally simpler than the target loop:
+  command polling, started-state handling, recon, order exits, new-order
+  submission, and DB status writes wait for those owning objects.
 
 ## files changed
 
 - `HANDOFF.md`
-- `.project/plans/runtime-flow-execplan.md`
+- `nuubot/__init__.py`
+- `nuubot/nuubot.py`
+- `nuubot/cli/cli.py`
+- `nuubot/datastore/__init__.py`
+- `nuubot/datastore/datastore.py`
+- `nuubot/core/runtime.py`
+- `nuubot/signaler/__init__.py`
+- `nuubot/signaler/signaler.py`
 - `wiki/AGENTS.md`
-- `wiki/design/AGENTS.md`
 - `wiki/design/overview.md`
-- `wiki/design/state.md`
-- `wiki/design/strategy.md`
-- `wiki/design/sweeps.md`
-- `wiki/testing.md`
-- `wiki/design/objects/**`
-- Deleted stale spread-out design docs:
-  - `wiki/architecture.md`
-  - `wiki/runtimeflow.md`
-  - `wiki/design/runtime.md`
-  - `wiki/design/backtest-simulator.md`
-  - `wiki/design/frontend.md`
-  - `wiki/design/design.html`
-  - `wiki/design/process.html`
-  - `wiki/design/runtime-flow-compare.html`
+- `wiki/design/objects/AGENTS.md`
+- `wiki/design/objects/cli.md`
+- `wiki/design/objects/datastore.md`
+- `wiki/design/objects/nuubot.md`
+- `wiki/design/objects/runtime.md`
+- `wiki/design/objects/signaler.md`
 
 ## proof run
 
-- Stale deleted-doc reference scan passed:
-  `rtk rg -n "design/runtime\\.md|\\[Runtime\\]\\(runtime\\.md\\)|\`runtime\\.md\`|wiki/design/runtime\\.md|backtest-simulator|frontend\\.md|design\\.html|process\\.html|runtimeflow|architecture\\.md" wiki .project AGENTS.md`
-- Whitespace check passed:
+- Compile:
+  `uv run python -m py_compile nuubot/nuubot.py nuubot/datastore/datastore.py nuubot/datastore/models.py nuubot/cli/cli.py nuubot/cli/__main__.py`
+- Config smoke:
+  `uv run python -m smoke.config`
+- Infra setup:
+  `uv run python -c "from nuubot import Nuubot; n=Nuubot.setup(); print(n.config.general.mode); print(sorted(n.datastore.sessions)); n.stop()"`
+- CLI:
+  `uv run python -m nuubot.cli create -f workspace/templates/smoke-backtest.toml`
+- CLI:
+  `uv run python -m nuubot.cli view`
+- CLI:
+  `uv run python -m nuubot.cli clone 1`
+- CLI:
+  `uv run python -m nuubot.cli stop 1`
+- CLI:
+  `uv run python -m nuubot.cli ping 1`
+- Runtime smoke:
+  `uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml`
+- Compile after runtime cleanup:
+  `uv run python -m py_compile nuubot/core/runtime.py nuubot/signaler/signaler.py nuubot/signaler/__init__.py nuubot/core/sweep.py`
+- Whitespace:
   `rtk git diff --check`
 
 ## proof not run
 
-- No code tests run; this pass is docs-only.
-- No executable pseudocode/spec created yet.
-- No commit after the current docs changes.
+- CLI `start` still intentionally fails loud because runtime launch is not
+  wired yet.
 
 ## next action
 
-Create the executable pseudocode/spec for runtime sequence review. Do not move
-code or add implementation detail until the object design shape is approved.
+Continue runtime cleanup only if it keeps behavior unchanged: keep clock/replay
+visible in Runtime, push object internals into their owning object, then
+implement DB-backed `CommandServer(nuubot, bot_id, callbacks)`.

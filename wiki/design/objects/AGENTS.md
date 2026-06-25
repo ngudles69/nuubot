@@ -18,13 +18,14 @@ Rules for files under `wiki/design/objects/**`.
 
 ## Files
 
-1. `runtime.md`: master composer.
-2. `config.md`: config holder.
-3. `account.md`: exchange account composer, simulator, ledger.
-4. `ledger.md`: positions, orders, fills.
-5. `datastore.md`: PostgreSQL and SQLAlchemy boundary.
-6. `data.md`: `WsData`, `FileData`, meta helpers.
-7. `signaler.md`: signaler, indicators, consensus.
-8. `executor.md`: strategy execution logic.
-9. `cli.md`: bot manager program.
-10. `command.md`: runtime command-table server.
+1. `nuubot.md`: shared infra owner.
+2. `runtime.md`: master composer.
+3. `config.md`: config holder.
+4. `account.md`: exchange account composer, simulator, ledger.
+5. `ledger.md`: positions, orders, fills.
+6. `datastore.md`: PostgreSQL and SQLAlchemy boundary.
+7. `data.md`: `WsData`, `FileData`, meta helpers.
+8. `signaler.md`: signaler, indicators, consensus.
+9. `executor.md`: strategy execution logic.
+10. `cli.md`: bot manager program.
+11. `command.md`: runtime command-table server.

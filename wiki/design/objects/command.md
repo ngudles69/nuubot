@@ -21,7 +21,7 @@ It is not an aiohttp server.
 
 Allowed connections:
 
-- `Datastore`
+- `Nuubot`
 - Runtime callbacks for `status()` and `exit(reason)`
 - local process info for PID
 
@@ -41,7 +41,7 @@ External commands:
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Bot id, Datastore, runtime callbacks. | Initialized CommandServer. | Creates runtime `run_token`, records `pid`, and updates the bot row. If the DB update fails, runtime startup fails. |
+| `init()` | Nuubot, bot id, runtime callbacks. | Initialized CommandServer. | Creates runtime `run_token`, records `pid`, and updates the bot row through `nuubot.datastore`. If the DB update fails, runtime startup fails. |
 | `start()` | Initialized CommandServer. | Running CommandServer. | Starts command polling/heartbeat state. Does not execute commands until Runtime enters normal flow. |
 | `stop()` | Running CommandServer. | Stopped CommandServer. | Writes stopped/terminal ownership state where `bot_id` and `run_token` match. |
 | `heartbeat()` | Current runtime ownership. | Updated bot row. | Updates `last_seen_at` only where `bot_id` and `run_token` match. |
@@ -51,6 +51,7 @@ External commands:
 
 Supported runtime commands first:
 
+- `kill`
 - `stop`
 - `status`
 
@@ -82,6 +83,14 @@ Internal functions:
 
 ## notes
 
+- Constructor/input order is `nuubot`, then object id, then qualifiers or
+  callbacks.
+- `kill` exits the runtime process immediately and does not cancel orders or
+  close positions. It is restartable because the bot is not terminal.
+- `stop` requests graceful bot closure; runtime continues until Executor
+  reports the bot is closed, then marks the bot terminal stopped.
+- Terminal stopped/error bots cannot be restarted. Clone or create a new bot
+  instead.
 - `run_token` protects the current run from stale process writes.
 - Every runtime DB update must include `bot_id` and `run_token`.
 - PID is evidence, not truth.
