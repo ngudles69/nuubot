@@ -1,3 +1,3 @@
-from nuubot.config.config import Config
+from nuubot.config.config import load_config
 
-__all__ = ["Config"]
+__all__ = ["load_config"]

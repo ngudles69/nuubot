@@ -46,6 +46,11 @@ Rules for agents in `D:\rust\nuubot`.
 - Use PowerShell only when there is no practical Unix-style alternative.
 - Search with `rtk rg -n ...`.
 - Find files with `rtk rg --files`.
+- In PowerShell, single-quote `rg` regex patterns. Do not wrap regex patterns
+  in double quotes. PowerShell mangles `|`, `()`, backslashes, and embedded
+  quotes before `rg` sees them.
+- Use simple repeated `rtk rg -n literal ...` searches instead of complex
+  alternation when quoting gets noisy.
 - Never use PowerShell for regex/search work.
 - If PowerShell is needed, use:
   `rtk powershell -NoProfile -Command '...'`.

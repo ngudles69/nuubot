@@ -20,7 +20,7 @@ PENDING = "pending"
 
 def main() -> None:
     args = parse_args()
-    nuubot = Nuubot.setup()
+    nuubot = Nuubot().setup()
     try:
         run_command(nuubot.datastore, args)
     finally:
@@ -148,7 +148,7 @@ def add_command(store: Datastore, bot_id: int, command: str, payload: dict[str, 
             command=command,
             payload_json=json.dumps(payload or {}, sort_keys=True),
             status=PENDING,
-            created_at=now_ms(),
+            command_ts=now_ms(),
         )
         session.add(row)
         session.commit()

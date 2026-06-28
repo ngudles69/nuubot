@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from nuubot import Nuubot, nuubot_setup
+from nuubot import Nuubot
 from nuubot.core.clock import Clock, ReplayClock, TimeEvent
 from nuubot.core.config import load_botrun_config
 from nuubot.core.dtypes import Bar, BotRunResult, MarketSnapshot, Mode
@@ -26,7 +26,7 @@ RUNTIME_TIMER = "runtime"
 
 class Runtime:
     def __init__(self, config: BotrunConfig) -> None:
-        self.nuubot: Nuubot = nuubot_setup()
+        self.nuubot = Nuubot().setup()
         self.config = config
         self.mode = runtime_mode(config)
         self.log = logger(bot_log_path(config))
@@ -59,7 +59,7 @@ class Runtime:
         await self.executor.start()
 
     async def loop(self) -> None:
-        if self.mode == Mode.BACKTEST:
+        if self.mode in {Mode.BACKTEST, Mode.SWEEP}:
             await self.loop_backtest()
         else:
             await self.clock.run()
@@ -245,13 +245,15 @@ class Runtime:
 def create_data(config: BotrunConfig, telemetry: Telemetry, run_log: Any) -> FileDataEngine | WsDataEngine:
     if config.runtime.mode == Mode.BACKTEST:
         return FileDataEngine(config, telemetry, run_log)
+    if config.runtime.mode == Mode.SWEEP:
+        return FileDataEngine(config, telemetry, run_log)
     if config.runtime.mode in {Mode.MAINNET, Mode.TESTNET, Mode.SIMNET}:
         return WsDataEngine(config, telemetry, run_log)
     raise ValueError(f"unsupported mode: {config.runtime.mode}")
 
 
 def create_clock(config: BotrunConfig) -> Clock:
-    if config.runtime.mode == Mode.BACKTEST:
+    if config.runtime.mode in {Mode.BACKTEST, Mode.SWEEP}:
         return ReplayClock(config.runtime.min_timer_interval_ms)
     return Clock(config.runtime.min_timer_interval_ms)
 

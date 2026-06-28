@@ -1,41 +1,30 @@
 # handoff
 
-Last updated: 2026-06-25
+Last updated: 2026-06-28
 
 ## focus
 
-Runtime cleanup is in progress after the datastore/Nuubot simplification.
-Runtime should read close to BlackBot: visible clock/replay flow, clear loop
-sequence, one composed object call for signaler/executor/risk behavior.
+Datastore/config cleanup for `D:\rust\nuubot`, with `ghbot.ipynb` aligned to
+the current sweep schema.
 
 ## current status
 
-- Last commit: `9043e0b Add object design and command datastore scaffold`.
-- Worktree has the uncommitted datastore/Nuubot/runtime/signaler cleanup.
-- `progflow.pdf` is untracked and intentionally left alone for now.
-- Runtime main flow is approved; do not change the runtime sequence.
-- Datastore is now infra-only: `Datastore(config).init()`, `session()`,
-  `stop()`.
-- `Nuubot.setup()` owns config loading and datastore initialization.
-- CLI owns bot catalog commands and uses SQLAlchemy sessions/models directly.
-- Runtime creates `self.nuubot = nuubot_setup()` and will pass that to
-  CommandServer when CommandServer is implemented.
-- Runtime now talks to one `Signaler` composer. The composer owns child
-  signaler creation, seeding, eligibility, and signal selection.
-- Constructor/input order is locked: `nuubot`, then object id, then qualifiers
-  or callbacks.
-- Runtime target loop is phase-based: gather command/market/signaler/risk/
-  executor inputs, check exits only after started, check entries before
-  started, then active processing for recon/order exits/new orders, then
-  heartbeat/status persistence.
-- Fresh start and restart use the same loop: Executor reconciles exchange/
-  account/ledger state first. Fresh start should reconcile to flat/no-op.
-- Reconcile is mandatory before every non-kill operation. Only `kill` skips it
-  because no trading/closing operation follows.
-- `kill` exits the runtime process without canceling orders or closing
-  positions; the bot remains restartable.
-- Graceful `stop` closes the bot through Executor, then marks terminal stopped.
-  Terminal stopped/error bots cannot be restarted.
+- `nuubot/datastore/schemas.py` owns SQLAlchemy table schemas.
+- `nuubot/datastore/models.py` is reserved for Pydantic models.
+- `nuubot/datastore/datastore.py` creates configured Postgres DBs and tables
+  explicitly, one database/table set at a time.
+- `nuubot/config/config.py` is simplified:
+  `load_config(path)` -> `read_config_data(path)` -> `create_config(data)`.
+- `nuubot.config.data_network` and `nuubot.config.exec_network` are set from
+  `nuubot.config.general.mode` in `set_networks(config)`.
+- `RuntimeConfig` no longer sets network fields.
+- `notebooks/ghbot.ipynb`, `notebooks/emacross.ipynb`, and
+  `notebooks/emacross_ghbot.ipynb` were updated to current `SweepRow` /
+  `SweeprunRow` fields.
+- Current Postgres non-template DBs:
+  `nuubot_backtest`, `nuubot_mainnet`, `nuubot_server`, `nuubot_simnet`,
+  `nuubot_sweeps`, `nuubot_testnet`, `postgres`.
+- User installed DBeaver and can see the `nuubot_*` databases.
 
 ## active agents
 
@@ -43,79 +32,59 @@ None.
 
 ## blockers
 
-None known.
-
-## decisions made
-
-- Datastore has no `start()`.
-- Datastore does not own bot lifecycle commands.
-- Datastore `init()` creates every configured database, table, and SQLAlchemy
-  metadata index if missing.
-- Current implementation uses one SQLite file per configured DB name under
-  `workspace/db`; PostgreSQL remains later.
-- `create_databases()`, `create_tables()`, and `create_indexes()` are not public
-  datastore commands.
-- `Nuubot` is the infra owner for `config` and `datastore`.
-- Runtime uses `Nuubot` for infra, but the approved runtime loop order is
-  unchanged.
-- Runtime and Clock interaction should stay explicit in Runtime.
-- Signaler/account/executor internals should stay inside their own objects.
-- Current runtime implementation is intentionally simpler than the target loop:
-  command polling, started-state handling, recon, order exits, new-order
-  submission, and DB status writes wait for those owning objects.
+- Do not run DB-writing notebooks or destructive DB commands without explicit
+  approval.
+- If wording is ambiguous and action is destructive, ask first.
 
 ## files changed
 
-- `HANDOFF.md`
-- `nuubot/__init__.py`
-- `nuubot/nuubot.py`
-- `nuubot/cli/cli.py`
-- `nuubot/datastore/__init__.py`
+- `nuubot/config/config.py`
+- `nuubot/config/__init__.py`
+- `nuubot/config/models.py`
+- `nuubot/core/dtypes.py`
+- `nuubot/core/models/mconfig.py`
+- `nuubot/core/sweep.py`
 - `nuubot/datastore/datastore.py`
-- `nuubot/core/runtime.py`
-- `nuubot/signaler/__init__.py`
-- `nuubot/signaler/signaler.py`
-- `wiki/AGENTS.md`
-- `wiki/design/overview.md`
-- `wiki/design/objects/AGENTS.md`
-- `wiki/design/objects/cli.md`
-- `wiki/design/objects/datastore.md`
-- `wiki/design/objects/nuubot.md`
-- `wiki/design/objects/runtime.md`
-- `wiki/design/objects/signaler.md`
+- `nuubot/datastore/models.py`
+- `nuubot/datastore/schemas.py`
+- `nuubot/datastore/__init__.py`
+- `nuubot/nuubot.py`
+- `notebooks/ghbot.ipynb`
+- `notebooks/emacross.ipynb`
+- `notebooks/emacross_ghbot.ipynb`
+- `wiki/coding/rules.md`
+- `wiki/design/state.md`
+- `wiki/design/sweeps.md`
+- `wiki/logging.md`
 
 ## proof run
 
-- Compile:
-  `uv run python -m py_compile nuubot/nuubot.py nuubot/datastore/datastore.py nuubot/datastore/models.py nuubot/cli/cli.py nuubot/cli/__main__.py`
-- Config smoke:
-  `uv run python -m smoke.config`
-- Infra setup:
-  `uv run python -c "from nuubot import Nuubot; n=Nuubot.setup(); print(n.config.general.mode); print(sorted(n.datastore.sessions)); n.stop()"`
-- CLI:
-  `uv run python -m nuubot.cli create -f workspace/templates/smoke-backtest.toml`
-- CLI:
-  `uv run python -m nuubot.cli view`
-- CLI:
-  `uv run python -m nuubot.cli clone 1`
-- CLI:
-  `uv run python -m nuubot.cli stop 1`
-- CLI:
-  `uv run python -m nuubot.cli ping 1`
-- Runtime smoke:
-  `uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml`
-- Compile after runtime cleanup:
-  `uv run python -m py_compile nuubot/core/runtime.py nuubot/signaler/signaler.py nuubot/signaler/__init__.py nuubot/core/sweep.py`
-- Whitespace:
-  `rtk git diff --check`
+- `uv run python -m compileall -q nuubot`
+- `Nuubot().setup()` showed:
+  `simnet mainnet simnet`
+- All `workspace/templates/*.toml` validated against current Pydantic config.
+- `ghbot.ipynb` code cells parsed.
+- `ghbot.ipynb` was executed once by the agent during proof and inserted a
+  sweep row. This was a mistake because the user asked to check code, not run
+  DB-writing code.
 
 ## proof not run
 
-- CLI `start` still intentionally fails loud because runtime launch is not
-  wired yet.
+- No full test suite.
+- Do not execute notebooks again unless the user explicitly says to run them.
+
+## decisions made
+
+- No properties/computed fields unless current code 100% needs them.
+- No alias property for a badly named field; rename the field instead.
+- No tuple/dict mode lookup for networks; use direct `if/elif`.
+- App-level network access is `nuubot.config.data_network` and
+  `nuubot.config.exec_network`.
+- `ghbot.ipynb` stores loaded template content as `config_json`; no manifest
+  path/hash fields.
+- Destructive action rule added to `wiki/coding/rules.md`.
 
 ## next action
 
-Continue runtime cleanup only if it keeps behavior unchanged: keep clock/replay
-visible in Runtime, push object internals into their owning object, then
-implement DB-backed `CommandServer(nuubot, bot_id, callbacks)`.
+Continue schema/datastore cleanup only when asked. If asked to inspect a
+notebook, use static checks unless the user explicitly asks to execute it.

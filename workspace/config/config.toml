@@ -12,7 +12,7 @@ logs_dir = "workspace/logs"
 results_dir = "workspace/results"
 
 [databases]
-server = "server"
+server = "nuubot_server"
 mainnet = "nuubot_mainnet"
 testnet = "nuubot_testnet"
 simnet = "nuubot_simnet"

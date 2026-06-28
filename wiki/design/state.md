@@ -41,6 +41,14 @@ update_state()  # update only; fail if row is missing unexpectedly
 delete_state()  # explicit delete only
 ```
 
+Timestamp rule:
+
+- All stored timestamps are UTC.
+- Datastore sessions force the Postgres timezone to UTC.
+- Exchange timestamps are stored as received/normalized UTC values.
+- Store one canonical timestamp value. Convert to local time only for logs,
+  reports, notebooks, and UI display.
+
 ## entity map
 
 ```text

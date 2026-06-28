@@ -33,6 +33,8 @@ Nuubot outputs:
 
 - `nuubot.config`
 - `nuubot.datastore`
+- `nuubot.data_network`
+- `nuubot.exec_network`
 
 ## contracts
 
@@ -40,6 +42,8 @@ Nuubot outputs:
 | --- | --- | --- | --- |
 | `setup(path)` | Workspace config path. | Ready Nuubot. | Loads Config, initializes Datastore, and returns the infra owner. Fails loud if either step fails. |
 | `nuubot_setup(path)` | Workspace config path. | Ready Nuubot. | Thin module-level call to `Nuubot.setup()` for simple program entrypoints. |
+| `data_network` | Ready Nuubot. | Data network value. | Derived from `nuubot.config.general.mode`. Not a config-file field. |
+| `exec_network` | Ready Nuubot. | Execution network value. | Derived from `nuubot.config.general.mode`. Not a config-file field. |
 | `stop()` | Ready Nuubot. | Stopped infra. | Stops owned infrastructure resources. |
 
 ## processing
@@ -48,6 +52,7 @@ Internal functions:
 
 - load workspace config.
 - initialize datastore.
+- derive runtime-facing networks from config mode.
 - expose infra handles.
 - stop infra handles.
 

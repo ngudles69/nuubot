@@ -23,7 +23,6 @@ External commands:
 - `load()`
 - `stop()`
 - `validate()`
-- `set_mode()`
 
 Config receives:
 
@@ -34,7 +33,6 @@ Config outputs:
 
 - validated runtime, market, credentials, exchange/account, signaler, executor,
   risk, and backtest settings.
-- mode-derived data and execution network values.
 - Pydantic config objects that can be displayed through Pydantic dump methods.
 
 ## contracts
@@ -42,10 +40,9 @@ Config outputs:
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
 | `Config(path)` | Existing TOML path. | Config object. | Stores config path and prepares empty state. Does not load yet. |
-| `load()` | Stored config path. | Pydantic config object. | Reads the config file and credentials file from the same path, then calls `validate()` and `set_mode()`. Fails loud on missing credentials, parse errors, or unreadable files. |
+| `load()` | Stored config path. | Pydantic config object. | Reads the config file and credentials file from the same path, then validates the Pydantic model. Fails loud on missing credentials, parse errors, or unreadable files. |
 | `stop()` | Loaded Config. | Stopped Config. | No external resources; clears transient state if any. |
 | `validate()` | Loaded config data. | Valid config or error. | Runs all field and cross-section checks. Does not repair bad input. |
-| `set_mode()` | Valid runtime mode. | Data and execution network values. | Sets the mode-derived data and exec network. Fails loud on unknown mode. No fallback and no authored override. |
 | Pydantic dump | Valid config. | JSON-safe display data. | Use Pydantic `model_dump(mode="json")` or `model_dump_json()`. Secret fields must display masked values. Do not code custom JSON output. |
 
 ## processing
@@ -58,7 +55,6 @@ Internal functions:
 - reject unknown fields.
 - validate cross-section rules, for example backtest mode requires backtest
   config.
-- set mode-derived data network and execution network.
 - load credential fields into Pydantic secret types.
 
 ## key helpers

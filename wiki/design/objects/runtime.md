@@ -40,7 +40,7 @@ External commands:
 - `start()`
 - `stop()`
 - `loop()`
-- `loop_once(event)`
+- `next(event optional)`
 - `exit(reason)`
 - `status()`
 
@@ -66,8 +66,8 @@ Runtime outputs:
 | `init()` | Config path or loaded Config. | Initialized Runtime. | Sets up Nuubot infra, initializes CommandServer, and composes owned runtime objects. If CommandServer cannot write runtime ownership to DB, startup fails. |
 | `start()` | Initialized Runtime. | Running Runtime. | Starts owned objects in runtime order and registers the runtime timer. |
 | `stop()` | Running or failed Runtime. | Stopped Runtime. | Stops owned objects and exposes dirty cleanup state if cleanup fails. |
-| `loop()` | Running Runtime. | Completed run. | Uses wall clock for live modes and replay loop for backtest. Does not alter `loop_once` sequence. |
-| `loop_once(event)` | Clock event. | One runtime unit of work. | Preserves approved main flow: max-loop check, market snapshot, signaler observation, risk, signal decision, executor, telemetry/exit. |
+| `loop()` | Running Runtime. | Completed run. | Calls `clock.run(Runtime.next)`. Clock owns wall-time vs replay triggering. |
+| `next(event optional)` | Optional Clock event. | One runtime unit of work. | Preserves approved main flow: command, market snapshot, mandatory reconcile, signaler/risk/executor, telemetry/status. |
 | `exit(reason)` | Reason string. | Runtime stop requested. | Cancels runtime timer and records stop reason. |
 | `status()` | Current runtime state. | JSON-safe status. | Returns liveness/status/telemetry for command server. |
 
@@ -116,11 +116,10 @@ with implementation detail.
 Runtime trigger:
 
 ```text
-while running:
-  await Clock.tick()
+clock.run(Runtime.next)
 ```
 
-`Runtime.loop_once(event)` is the bot unit of work.
+`Runtime.next(event optional)` is the bot unit of work.
 
 Runtime focuses on sequence:
 
@@ -137,7 +136,7 @@ ledger internals, or datastore row meaning.
 Canonical loop:
 
 ```text
-loop_once(event)
+next(event optional)
   now = Clock.now_ms()
 
   command = CommandServer.poll()
@@ -148,19 +147,18 @@ loop_once(event)
     end_loop()
     return
 
-  if max_loop reached:
-    exit("max_loop")
-    end_loop()
-    return
-
   market = Data.snapshot(now)
-  signaler_state = Signaler.observe(market)
   executor_state = Executor.reconcile(market)
 
   Reconcile is a must-do step before any non-kill operation. Nothing trades,
   closes, stops, checks terminal state, or submits orders before reconcile.
   Fresh start should reconcile to flat/no-op state. Restart should reconcile
   to the current exchange/account/ledger state.
+
+  if max_loop reached:
+    exit("max_loop")
+    end_loop()
+    return
 
   if executor_state is terminal stopped or terminal error:
     exit("terminal")
@@ -169,6 +167,8 @@ loop_once(event)
 
   if command is stop:
     Executor.request_terminal_stop()
+
+  signaler_state = Signaler.observe(market)
 
   if Executor.is_active():
     risk_state = Risk.score()
@@ -190,7 +190,7 @@ loop_once(event)
     if signaler_state has no usable entry data:
       end_loop()
       return
-    decision = await Signaler.loop_once()
+    decision = Signaler.signal()
     if decision is entry:
       await Executor.enter(decision)
     end_loop()
@@ -225,31 +225,27 @@ Runtime command stop semantics:
 - Only `kill` can skip reconcile, because no trading/closing operation runs
   after it.
 
-Current runnable implementation is still simpler. It has the same clock/replay
-trigger shape and the current working sequence is:
+Current runnable implementation has not caught up to this target sequence.
 
-```text
-max-loop check
-market snapshot
-Signaler.observe(snapshot)
-Risk.score() / Risk.exit()
-Signaler.loop_once() / Signaler.exit()
-Executor.loop_once(decision.bar, decision.signal)
-Executor.exit()
-telemetry / max-loop check
-```
+Implementation gaps:
 
-Add command polling, started-state handling, reconcile, order-exit handling,
-new-order submission, and DB status writes only when the owning objects are in
-place.
+- rename `loop_once` to `next`.
+- route live and backtest through `clock.run(Runtime.next)`.
+- move backtest replay driving into Clock.
+- add command polling.
+- add mandatory reconcile before every non-kill operation.
+- add started/flat/closing state handling through Executor.
+- add order-exit handling, new-order submission, and DB status writes through
+  owning objects.
 
 Runtime binding:
 
 ```text
-mainnet   = wsdata + mainnet execution + wall Clock
-testnet   = wsdata + testnet execution + wall Clock
-simnet    = wsdata + simulator execution + wall Clock
-backtest  = filedata + simulator execution + replay Clock
+mainnet   = mainnet data + mainnet execution + wall Clock
+testnet   = testnet data + testnet execution + wall Clock
+simnet    = mainnet data + simnet execution + wall Clock
+backtest  = filenet data + simnet execution + replay Clock
+sweep     = filenet data + sweep execution + replay Clock
 ```
 
 `runtime.mode` is first-class and dominant. It is the configured value. The
@@ -257,18 +253,18 @@ data and execution networks are derived from it:
 
 | Mode | Derived `data_network` | Derived `exec_network` | Meaning |
 | --- | --- | --- | --- |
-| `mainnet` | `wsdata` | `mainnet` | Websocket market data, real mainnet execution. |
-| `testnet` | `wsdata` | `testnet` | Websocket market data, real testnet execution. |
-| `simnet` | `wsdata` | `simulator` | Websocket market data, simulated execution. |
-| `backtest` | `filedata` | `simulator` | Historical file data, simulated execution. |
+| `mainnet` | `mainnet` | `mainnet` | Mainnet market data, real mainnet execution. |
+| `testnet` | `testnet` | `testnet` | Testnet market data, real testnet execution. |
+| `simnet` | `mainnet` | `simnet` | Mainnet market data, simulated execution. |
+| `backtest` | `filenet` | `simnet` | Historical file data, simulated execution. |
+| `sweep` | `filenet` | `sweep` | Historical file data, sweep execution. |
 
 `data_network` selects `WsDataEngine` or `FileDataEngine`. `exec_network`
 describes where execution goes. They are derived properties, not authored
 config fields. `mode` drives them and prevents invalid combinations.
 
-Sweep is not a bot runtime mode. It is its own execution shell and uses its own
-log format. Generated botruns may use backtest binding, but sweep itself does
-not use `bot_<mode>_<bot_id>.log`.
+Sweep is a bot runtime mode for sweep-generated botruns. Fast sweep may still
+use its own tight execution shell for speed.
 
 `bar` means candle.
 
@@ -356,16 +352,23 @@ The visible intent flow should answer:
 All code after initialization uses the same clock API:
 
 ```text
-await clock.tick()
+await clock.run(Runtime.next)
 now_ms = clock.now_ms()
 ```
 
-`Clock.tick()` waits on wall time, builds due `TimeEvent` items, and calls each
-timer's callback. `ReplayClock` does not pull data. Backtest replay code sets
-replay time and dispatches due timers after ingesting a timestamp batch.
+Clock init decides whether this mode uses timer events:
+
+```text
+Clock(mode, data, loop_seconds)
+  if mode is backtest:
+    timer = None
+  else:
+    timer = Timer("runtime", loop_seconds)
+```
+
 `now_ms()` only returns current clock time.
 
-Timer shape:
+Timer shape for live modes:
 
 ```text
 Clock
@@ -373,31 +376,37 @@ Clock
   Timer
 ```
 
-Runtime registers one timer first:
+Live modes:
 
 ```text
-clock.set_timer("runtime", loop_seconds, Bot.loop_once)
+Clock.run(Runtime.next)
+  while running:
+    await sleep_until_timer_due(timer)
+    event = timer.event(now_ms)
+    await Runtime.next(event)
 ```
 
-Mainnet/testnet/simnet `tick()` waits for the configured loop cadence. It does
-not wait for new BBO or bar data. `now_ms()` returns wall time.
+Mainnet/testnet/simnet wait for the configured loop cadence. The Clock does not
+wait for new BBO or bar data. `now_ms()` returns wall time.
 
-Backtest does not use wall sleep and does not let the clock pull market data.
-`Runtime.loop_backtest()` drives replay:
+Backtest:
 
 ```text
-batch = next(replay_batches)
-ReplayClock.set_time(batch.ts_ms)
-FileDataEngine.ingest_replay_batch(batch)
-ReplayClock.dispatch_due(batch.ts_ms)
+Clock.run(Runtime.next)
+  for batch in FileData.replay_batches():
+    Clock.set_time(batch.ts_ms)
+    FileData.ingest_replay_batch(batch)
+    await Runtime.next()
 ```
+
+Backtest has no timer. Replay batch timestamps are the trigger.
 
 Core replay rule:
 
 ```text
 Data engine updates market snapshot.
-Clock/replay driver dispatches Runtime.loop_once().
-Runtime.loop_once() reads snapshot and runs bot logic.
+Clock calls Runtime.next().
+Runtime.next() reads snapshot and runs bot logic.
 ```
 
 | Concept | Mainnet / Testnet / Simnet | Backtest |
@@ -405,8 +414,8 @@ Runtime.loop_once() reads snapshot and runs bot logic.
 | Driver | Wall time through asyncio. | Prepared replay data through a plain loop. |
 | Wait | `asyncio.sleep(...)` waits for real time. | No wait; consume next replay batch. |
 | Data arrival | Websocket messages update market buffers. | Replay loop ingests timestamp batches. |
-| Time advance | Clock samples wall time after sleep. | Replay clock jumps to batch timestamp. |
-| Loop trigger | Due timer dispatches `loop_once()`. | Batch ingest completes, then due timer dispatches once for that timestamp. |
+| Time advance | Clock samples wall time after sleep. | Clock jumps to batch timestamp. |
+| Loop trigger | Timer event calls `next(event)`. | Batch ingest completes, then Clock calls `next()`. |
 | Snapshot shape | Latest BBO/price plus bars by interval. | Same shape after batch ingest. |
 
 Same-timestamp backtest events collapse into one timestamp batch:
@@ -416,7 +425,7 @@ Same-timestamp backtest events collapse into one timestamp batch:
 05:00:00  1h completed bar event
 ```
 
-`loop_once()` sees both only after they are closed and ingested.
+`next()` sees both only after they are closed and ingested.
 
 ## data engines
 

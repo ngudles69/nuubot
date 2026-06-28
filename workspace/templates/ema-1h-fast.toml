@@ -3,7 +3,7 @@ mode = "fast"
 start_bot_id = 200
 
 [runtime]
-mode = "backtest"
+mode = "sweep"
 max_loop = 0
 loop_seconds = 1.0
 

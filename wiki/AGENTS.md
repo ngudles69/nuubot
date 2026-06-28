@@ -24,6 +24,7 @@ Rules for files under `wiki/**`.
 1. Core:
   - `project.md`: vision, objective, and guidance.
   - `logging.md`: logging format and cascading error path.
+  - `notebooks.md`: notebook workflow, extraction markers, charting rules.
   - `testing.md`: compile check and smoke test commands.
   - `repomap.md`: repo map.
 2. Design:
@@ -37,7 +38,14 @@ Rules for files under `wiki/**`.
     events, frontend read model.
   - `design/strategy.md`: risk, signalers, executors.
   - `design/sweeps.md`: sweep, sweeprun, botrun, parameters.
-3. Coding:
+3. Flow:
+  - `flow/AGENTS.md`: flow map.
+  - `flow/clock.md`: wall clock and replay clock flow.
+  - `flow/simnet.md`: simnet runtime flow.
+  - `flow/live.md`: live runtime flow.
+  - `flow/backtest.md`: backtest runtime flow.
+  - `flow/sweep.md`: sweep flow.
+4. Coding:
   - `coding/rules.md`: coding rules.
   - `coding/samples/scaffold.md`: new-file scaffold samples.
   - `coding/samples/objects.md`: composing and primitive object samples.

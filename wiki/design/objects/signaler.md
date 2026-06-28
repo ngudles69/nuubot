@@ -37,7 +37,7 @@ External commands:
 - `start(data)`
 - `stop()`
 - `observe(snapshot)`
-- `loop_once()`
+- `signal()`
 - `exit()`
 - `telemetry()`
 
@@ -74,7 +74,7 @@ or any shape the owning Signaler understands.
 | `start(data)` | Data object/history source. | Seeded Signaler. | Seeds every owned indicator or child signaler. Fails loud if required seed data is missing. |
 | `stop()` | Running Signaler. | Stopped Signaler. | Stops owned indicators and releases owned resources. |
 | `observe(snapshot)` | Market snapshot. | Boolean new-signalable data state. | Filters usable bars, rejects stale/duplicate closed bars, and records progress for Runtime telemetry. |
-| `loop_once()` | Previously observed usable market data. | Standardized Signal decision. | Runs owned signalers/indicators and applies signal priority/consensus. Runtime does not loop over child signalers. |
+| `signal()` | Previously observed usable market data. | Standardized Signal decision. | Runs owned signalers/indicators and applies signal priority/consensus. Runtime does not loop over child signalers. |
 | `exit()` | Current signaler state. | Boolean. | Returns whether Signaler requests runtime stop. |
 | `telemetry()` | Current signaler state. | JSON-safe telemetry. | Returns indicator diagnostics, freshness state, and consensus data. |
 | `Indicator.init(config)` | Indicator config. | Initialized Indicator. | Validates indicator config and prepares empty state. |
@@ -144,7 +144,7 @@ Freshness rule:
 - Signaler owns all indicator loading and interpretation.
 - Signaler owns child-signal/indicator eligibility, seeding, and signal
   priority. Runtime only asks whether signalable data exists and then asks for
-  one decision.
+  one signal.
 - Start with simple signalers; split deeper only when the object grows.
 - Indicator does not return a standardized trading signal. Signaler converts
   indicator rows into one standardized signal.

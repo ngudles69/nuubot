@@ -66,6 +66,8 @@ Standards:
 - Log the message on the timestamp line.
 - Use `ts_now: YYYY-MM-DD HH:MM:SS.mmm` instead of raw `now_ms`.
 - Bot-owned runtime logs go to `workspace/logs/bot_<network>_<bot_id>.log`.
+- Logs may display local time for readability. Stored datastore timestamps and
+  exchange timestamps remain UTC.
 
 Recommendations:
 

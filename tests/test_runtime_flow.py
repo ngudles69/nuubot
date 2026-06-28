@@ -6,6 +6,7 @@ from nuubot.core.clock import ReplayClock
 from pydantic import ValidationError
 
 from nuubot.core.dtypes import Bar, DataNetwork, ExecNetwork, MarketSnapshot, Mode, ReplayEvent
+from nuubot.config.models import AppConfig
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.logger import format_bar, format_bbo, format_ms
 from nuubot.core.market_data import derive_bars, group_replay_events
@@ -53,7 +54,7 @@ def test_log_format_helpers_are_compact() -> None:
 
 def test_runtime_rejects_manual_network_fields() -> None:
     data = {
-        "runtime": {"bot_id": 1, "mode": "simnet", "data_network": "wsdata", "exec_network": "mainnet", "max_loop": 1, "loop_seconds": 1.0},
+        "runtime": {"bot_id": 1, "mode": "simnet", "data_network": "mainnet", "exec_network": "mainnet", "max_loop": 1, "loop_seconds": 1.0},
         "market": {"symbol": "BTC", "interval": "1m"},
         "signalers": [{"name": "startnow", "interval": "1m"}],
         "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
@@ -74,8 +75,80 @@ def test_pydantic_parses_runtime_mode_enums() -> None:
         "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
     })
     assert config.runtime.mode == Mode.SIMNET
-    assert config.runtime.data_network == DataNetwork.WSDATA
-    assert config.runtime.exec_network == ExecNetwork.SIMULATOR
+    assert config.runtime.data_network == DataNetwork.MAINNET
+    assert config.runtime.exec_network == ExecNetwork.SIMNET
+
+
+def test_mode_network_mapping_is_canonical() -> None:
+    cases = [
+        ("mainnet", DataNetwork.MAINNET, ExecNetwork.MAINNET),
+        ("testnet", DataNetwork.TESTNET, ExecNetwork.TESTNET),
+        ("simnet", DataNetwork.MAINNET, ExecNetwork.SIMNET),
+        ("backtest", DataNetwork.FILENET, ExecNetwork.SIMNET),
+        ("sweep", DataNetwork.FILENET, ExecNetwork.SWEEP),
+    ]
+
+    for mode, data_network, exec_network in cases:
+        config = BotrunConfig.model_validate({
+            "runtime": {"bot_id": 1, "mode": mode, "max_loop": 1, "loop_seconds": 1.0},
+            "market": {"symbol": "BTC", "interval": "1m"},
+            "signalers": [{"name": "startnow", "interval": "1m"}],
+            "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
+            "backtest": {"start": "2025-01-01", "stop": "2025-01-02", "data_dir": "workspace/data"},
+        })
+        assert config.runtime.data_network == data_network
+        assert config.runtime.exec_network == exec_network
+
+
+def test_app_config_rejects_manual_network_fields() -> None:
+    data = app_config_data()
+    data["general"]["data_network"] = "mainnet"
+    data["general"]["exec_network"] = "mainnet"
+
+    try:
+        AppConfig.model_validate(data)
+    except ValidationError as exc:
+        assert "Extra inputs are not permitted" in str(exc)
+    else:
+        raise AssertionError("manual network fields passed")
+
+
+def test_app_config_keeps_networks_out_of_general() -> None:
+    config = AppConfig.model_validate(app_config_data())
+
+    assert config.general.mode == Mode.SIMNET
+    assert config.model_dump(mode="json")["general"] == {"mode": "simnet"}
+
+
+def app_config_data() -> dict:
+    return {
+        "workspace": {"root": "."},
+        "general": {"mode": "simnet"},
+        "paths": {
+            "config_dir": "workspace/config",
+            "data_dir": "workspace/data",
+            "db_dir": "workspace/db",
+            "logs_dir": "workspace/logs",
+            "results_dir": "workspace/results",
+        },
+        "databases": {
+            "server": "nuubot_server",
+            "mainnet": "nuubot_mainnet",
+            "testnet": "nuubot_testnet",
+            "simnet": "nuubot_simnet",
+            "backtest": "nuubot_backtest",
+            "sweeps": "nuubot_sweeps",
+        },
+        "hyperliquid": {"default_network": "testnet"},
+        "credentials": {
+            "database": {"host": "127.0.0.1", "port": 5432, "user": "postgres", "password": "postgres"},
+            "hyperliquid": {
+                "accounts": [
+                    {"network": "simnet", "name": "grid", "address": "0x0", "api_key": "key"},
+                ]
+            },
+        },
+    }
 
 
 async def test_replay_clock_dispatches_once_per_same_timestamp() -> None:
@@ -118,6 +191,9 @@ async def main() -> None:
     test_log_format_helpers_are_compact()
     test_runtime_rejects_manual_network_fields()
     test_pydantic_parses_runtime_mode_enums()
+    test_mode_network_mapping_is_canonical()
+    test_app_config_rejects_manual_network_fields()
+    test_app_config_keeps_networks_out_of_general()
     await test_replay_clock_dispatches_once_per_same_timestamp()
     test_runtime_keeps_all_signalers_for_same_new_bar()
 

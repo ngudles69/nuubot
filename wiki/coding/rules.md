@@ -42,10 +42,13 @@ Write simple, clear code.
 ## rules
 
 - Code only after explicit edit/create/add/change/migrate/install/run/fix/proceed.
+- If a destructive action is ambiguous, ask first. Do not infer drops, deletes,
+  truncates, resets, or session kills from unclear wording.
 - Do not hide bad input, bad output, or source errors.
 - `from __future__ import annotations` is allowed.
 - Add no helper, wrapper, adapter, registry, fallback, cache, or abstraction
   unless the current path needs it.
+- Add no property or computed field unless current code 100% needs it.
 - Remove unused helpers and dead stubs.
 - Comments explain intent, not mechanics.
 - Comment code in short intent blocks before lifecycle actions.

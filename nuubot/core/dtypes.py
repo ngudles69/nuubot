@@ -11,25 +11,26 @@ class Mode(StrEnum):
     TESTNET = "testnet"
     SIMNET = "simnet"
     BACKTEST = "backtest"
+    SWEEP = "sweep"
 
 
 class DataNetwork(StrEnum):
-    WSDATA = "wsdata"
-    FILEDATA = "filedata"
+    MAINNET = "mainnet"
+    TESTNET = "testnet"
+    FILENET = "filenet"
 
 
 class ExecNetwork(StrEnum):
     MAINNET = "mainnet"
     TESTNET = "testnet"
-    SIMULATOR = "simulator"
+    SIMNET = "simnet"
+    SWEEP = "sweep"
 
 
-MODE_NETWORKS: dict[Mode, tuple[DataNetwork, ExecNetwork]] = {
-    Mode.MAINNET: (DataNetwork.WSDATA, ExecNetwork.MAINNET),
-    Mode.TESTNET: (DataNetwork.WSDATA, ExecNetwork.TESTNET),
-    Mode.SIMNET: (DataNetwork.WSDATA, ExecNetwork.SIMULATOR),
-    Mode.BACKTEST: (DataNetwork.FILEDATA, ExecNetwork.SIMULATOR),
-}
+class HyperliquidNetwork(StrEnum):
+    MAINNET = "mainnet"
+    TESTNET = "testnet"
+    SIMNET = "simnet"
 
 
 @dataclass

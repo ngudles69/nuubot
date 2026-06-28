@@ -57,9 +57,7 @@ def load_sweep(path: Path) -> tuple[str, list[BotrunConfig]]:
 def sweep_bot_data(config: BotrunConfig, bot_id: int, ema_fast: int, ema_slow: int) -> dict[str, Any]:
     bot_data = config.model_dump()
     bot_data["runtime"]["bot_id"] = bot_id
-    bot_data["runtime"]["mode"] = "backtest"
-    bot_data["runtime"].pop("exec_network", None)
-    bot_data["runtime"].pop("data_network", None)
+    bot_data["runtime"]["mode"] = "sweep"
     bot_data["signalers"][0]["params"]["fast"] = ema_fast
     bot_data["signalers"][0]["params"]["slow"] = ema_slow
     return bot_data
@@ -82,6 +80,8 @@ async def run_fast(configs: list[BotrunConfig]) -> None:
             indicator_ms += (time.perf_counter() - indicator_start) * 1000
 
             run_start = time.perf_counter()
+            if config.executor.name != "tradebot":
+                raise ValueError(f"fast sweep supports tradebot only: {config.executor.name}")
             executor = ExecutorTrade(TradeConfig(config.runtime.bot_id, config.executor.take_profit_pct, config.executor.stop_loss_pct, config.executor.max_cycles))
             for bar, signal in zip(bars, signals, strict=True):
                 await executor.loop_once(bar, signal)

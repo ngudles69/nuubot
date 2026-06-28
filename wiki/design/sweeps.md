@@ -49,13 +49,13 @@ Botrun runtime fields:
 
 ```toml
 [runtime]
-mode = "backtest"
+mode = "sweep"
 ```
 
-Sweep-generated botruns use `runtime.mode = "backtest"` by default. The derived
-properties are `data_network = "filedata"` and `exec_network = "simulator"`.
-`sweep.mode` still controls how the sweep is executed, not where data or
-execution goes.
+Sweep-generated botruns use `runtime.mode = "sweep"` by default.
+`RuntimeConfig` sets `data_network = "filenet"` and `exec_network = "sweep"`
+from that mode.
+`sweep.mode` still controls fast vs standard execution.
 
 Sweep does not use the bot runtime log naming. Bot modes use
 `bot_<mode>_<bot_id>.log`; sweep uses its own sweep log format.
@@ -156,6 +156,15 @@ Skip:
 - runtime lifecycle ceremony.
 - per-loop file writes.
 
+Current code note:
+
+- Fast mode loads bars with `load_binance_bars(configs[0])`, then reuses that
+  list for every generated config.
+- `load_binance_bars()` currently filters by `backtest.stop` but not by
+  `backtest.start`. If the data folder contains earlier bars, fast mode can
+  process pre-start bars.
+- Fix this before trusting fast-vs-standard result parity.
+
 2. Standard sweep mode:
 
 ```text
@@ -178,6 +187,16 @@ Skip:
 Proof commands live in `wiki/testing.md`.
 
 ## result shape
+
+Sweep persistence:
+
+- `SweepRow.config_json` is the loaded sweep config.
+- `SweepRow.results_json` is the whole sweep result summary.
+- `SweeprunRow.config_json` is the generated sweeprun config.
+- `SweeprunRow.results_json` is the individual sweeprun result.
+- Timing belongs under `results_json.timing`.
+- Do not add separate sweeprun timing columns such as `elapsed_ms`,
+  `load_ms`, `indicator_ms`, or `execution_ms`.
 
 Minimum result:
 
@@ -267,7 +286,7 @@ record sweep started_at
 generate permutations
 insert sweeprun rows with sweeprun config and botrun config
 run N workers
-store each botrun result and duration
+store each sweeprun result in results_json, including timing
 mark sweep complete/error
 ```
 
