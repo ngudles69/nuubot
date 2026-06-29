@@ -90,14 +90,15 @@ This file is the project plan.
   - [x] 6.5 Add FastHTML WebGUI under `nuubot/webgui/**`.
   - [x] 6.6 Start WebGUI with `uv run python -m nuubot.server`.
   - [x] 6.7 Add repo-root `server.cmd` and `server.sh` helpers.
-  - [ ] 6.8 Add `ray` as a project dependency and install with `rtk uv sync`.
-  - [ ] 6.9 Start live managed bot actors through BotManager using Ray.
-  - [ ] 6.10 Submit sweep tasks through SweepManager using Ray.
-  - [ ] 6.11 Keep API/routes tiny: validate input, call one manager/helper,
+  - [x] 6.8 Add sweep create/list WebGUI pages and `/api/sweeps` routes.
+  - [x] 6.9 Add `ray` as a project dependency and install with `rtk uv sync`.
+  - [ ] 6.10 Start live managed bot actors through BotManager using Ray.
+  - [x] 6.11 Submit sweep tasks through SweepManager using Ray.
+  - [ ] 6.12 Keep API/routes tiny: validate input, call one manager/helper,
     return result.
-  - [ ] 6.12 Keep CLI as a thin operator helper over the same manager/helper
+  - [ ] 6.13 Keep CLI as a thin operator helper over the same manager/helper
     functions.
-  - [ ] 6.13 Prove one local Ray bot actor creates one bot DB and returns status.
+  - [ ] 6.14 Prove one local Ray bot actor creates one bot DB and returns status.
 
 ### [o] 7. Bot-local data feeds
 
@@ -123,8 +124,8 @@ This file is the project plan.
 
 ### [o] 9. Sweep
 
-  - [ ] 9.1 Implement a basic EMA-cross sweep.
+  - [x] 9.1 Implement a basic EMA-cross data/indicator sweep loop.
   - [ ] 9.2 Use EMA-cross sweep as the template for future sweeps.
-  - [ ] 9.3 Prove sweep runs through SweepManager and Ray task path.
+  - [x] 9.3 Prove sweep runs through SweepManager and Ray task path.
 
 ## project / tooling

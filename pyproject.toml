@@ -3,8 +3,10 @@ name = "nuubot"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+  "monsterui>=1.0.46",
   "pydantic>=2",
   "python-fasthtml>=0.14.4",
+  "ray>=2.55.1",
   "sqlalchemy>=2",
   "websockets>=15.0.1",
 ]
@@ -16,4 +18,5 @@ nuubot-cli = "nuubot.cli:main"
 dev = [
     "ipykernel>=7.3.0",
     "notebook>=7.6.0",
+    "playwright>=1.61.0",
 ]

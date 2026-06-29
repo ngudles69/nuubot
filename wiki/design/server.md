@@ -13,8 +13,8 @@ tags: [design, server, webgui, managers, ray, data]
 
 Server is the admin/API/WebGUI/control process.
 
-It owns API routes, WebGUI routes, managers, server DB setup, and operator-facing
-coordination. It uses Ray to run managed bot actors and sweep tasks.
+It owns API routes, WebGUI routes, managers, server DB setup, Ray startup, Ray
+shutdown, and operator-facing coordination.
 
 Ray is not the Server. Ray is the worker/process substrate under Server.
 
@@ -45,7 +45,7 @@ Notebook/manual mode
 Server owns:
 
 - `uv run python -m nuubot.server` as the normal operator entrypoint.
-- repo-root `server.cmd` and `server.sh` helpers.
+- repo-root `server.sh` helper.
 - FastHTML WebGUI under `nuubot/webgui/**`; see [WebGUI](webgui.md).
 - Server package shape starts with `__main__.py`, `server.py`, `api.py`, and
   `webgui.py`; add `botmgr.py` and `sweepmgr.py` only when those files contain
@@ -56,7 +56,7 @@ Server owns:
 - `BotManager`.
 - `SweepManager`.
 - Server lifecycle: start, stop, status, health.
-- Ray initialization/use from the control side.
+- Ray startup/shutdown from the control side.
 
 Server does not own bot trading logic or bot websocket feeds.
 
@@ -116,6 +116,31 @@ Do not make Server a Ray actor first.
 BotRuntime must also run without Ray for notebook coding/testing.
 
 Live managed runs use Server and Ray.
+
+## log rule
+
+Server lifecycle logs use `Server`, not `Application`.
+
+Startup:
+
+```text
+INFO:     Server startup in progress.
+INFO:     Started server process [...]
+INFO:     Ray startup in progress.
+INFO:     Ray startup complete.
+INFO:     Server startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:5001 (Press CTRL+C to quit)
+```
+
+Shutdown:
+
+```text
+INFO:     Server shutdown in progress.
+INFO:     Ray shutdown in progress.
+INFO:     Ray shutdown complete.
+INFO:     Server shutdown complete.
+INFO:     Finished server process [...]
+```
 
 ## websocket rule
 

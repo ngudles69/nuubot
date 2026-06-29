@@ -151,3 +151,26 @@ POST /api/bots/{bot_id}/start
   route calls BotManager.start_bot(bot_id)
   route returns accepted/status
 ```
+
+```text
+POST /api/sweeps
+  route reads raw request body
+  route rejects empty body
+  route does not parse TOML
+  route calls SweepManager.create_sweep(template)
+  route returns { ok, data: { sweep_id } }
+```
+
+```text
+POST /api/sweeps/{sweep_id}/run
+  route validates sweep_id is a positive int
+  route calls SweepManager.run_sweep(sweep_id)
+  route returns { ok, data: status }
+```
+
+```text
+GET /api/sweeps/{sweep_id}/status
+  route validates sweep_id is a positive int
+  route calls SweepManager.status_sweep(sweep_id)
+  route returns { ok, data: status }
+```

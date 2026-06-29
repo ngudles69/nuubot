@@ -52,12 +52,12 @@ External functions:
 | --- | --- | --- | --- |
 | `create_sweep_via_file(path)` | Sweep template path. | Sweep id and DB path. | Loads file, then calls `create_sweep_via_template(template)`. |
 | `create_sweep_via_template(template)` | Loaded sweep template. | Sweep id and DB path. | Validates through sweep/template code, allocates sequence, creates sweep DB, and writes sweep rows. |
-| `run_sweep(sweep_id)` | Sweep id. | Ray task refs/status. | Submits stateless Ray tasks for generated sweepruns. |
+| `run_sweep(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless Ray tasks. |
 | `stop_sweep(sweep_id)` | Running sweep id. | Stop accepted/result. | Stops/cancels outstanding sweep work where supported. |
 | `load_sweep(sweep_id)` | Sweep id. | Sweep row plus DB path. | Reads the sweep DB. |
 | `list_sweeps()` | None. | Sweep DB paths/rows. | Discovers `workspace/db/sweep_*.db`. |
 | `view_sweep(sweep_id)` | Sweep id. | Operator view. | Reads sweep DB result data. |
-| `status_sweep(sweep_id)` | Sweep id. | Sweep status. | Combines DB file existence and Ray task status where available. |
+| `status_sweep(sweep_id)` | Sweep id. | SQLite-backed sweep status. | Counts sweeprun rows by status and returns progress. |
 | `list_sweepruns(sweep_id)` | Sweep id. | Sweeprun rows. | Reads the sweep DB or sweeprun DB files. |
 
 ## notes
@@ -68,6 +68,62 @@ External functions:
   BacktestManager later.
 - First sweep target is a basic EMA-cross sweep used as the future sweep
   template.
+- First run target is data/indicator proof only: load historical bars, seed
+  EMA warmup bars, loop OHLCV, log bar/indicator values, and stop cleanly.
+- No executor, risk, entries, exits, orders, or fills in the first run target.
 - Sweep existence is the sweep DB file.
 - Do not add central sweep/sweeprun catalog tables unless file discovery is
   measured and proven insufficient.
+- Ray is execution. SQLite is truth.
+
+Run flow:
+
+```text
+run_sweep(sweep_id)
+  open workspace/db/sweep_<sweep_id>.db
+  load and validate sweep.config_json
+  delete run-owned rows except sweep
+  reset sweep.results_json
+  create sweeprun rows
+  create botrun rows
+  set sweep.status = running
+  submit Ray sweeprun tasks, max 8 local CPUs
+```
+
+Each Ray sweeprun task receives:
+
+```text
+sweep_id
+sweeprun_id
+sweep_db_path
+```
+
+Each sweeprun task:
+
+```text
+open sweep DB
+set own sweeprun row running
+load own botrun config
+load historical OHLCV bars
+seed EMA warmup bars
+loop active OHLCV bars
+write per-sweeprun log
+write own sweeprun results/status
+close sweep DB
+```
+
+Per-sweeprun logs live in:
+
+```text
+workspace/logs/sweep_<sweep_id>_sweeprun_<sweeprun_id>.log
+```
+
+The filename must include both `sweep_id` and `sweeprun_id` so there is no
+ambiguity about which sweep DB and row produced the log.
+
+Progress:
+
+```text
+done = count(sweeprun.status in ["complete", "failed"])
+total = count(sweeprun)
+```

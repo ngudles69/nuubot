@@ -1,4 +1,5 @@
 # Agent/tool local state
+.sesskey
 .gsd
 .gsd-id
 .mcp.json

@@ -61,6 +61,17 @@ rtk uv run python -m py_compile nuubot/core/config.py nuubot/core/models/mconfig
 rtk uv run python -m tests.test_runtime_flow
 ```
 
+## webgui screenshot check
+
+When WebGUI changes, run a headless Playwright check and inspect screenshots.
+
+Target screenshots live in:
+
+```text
+workspace/results/webgui-sweeps.png
+workspace/results/webgui-sweeps-create.png
+```
+
 ## sweep fast check
 
 Target proof is the CLI/Ray task launch path. Until that exists, this is only a
