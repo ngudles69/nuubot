@@ -1,7 +1,7 @@
 ---
 title: state design
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [design, state, datastore]
@@ -9,27 +9,94 @@ tags: [design, state, datastore]
 
 # state design
 
-## datastore
+## datastore model
+
+SQLite is the datastore target.
+
+DB files:
+
+- one persistent server DB for sequence numbers, server state, and exchange
+  meta.
+- one SQLite DB file per running bot instance.
+- one SQLite DB file per sweep.
+- one SQLite DB file per sweeprun when the run needs its own durable artifact.
+
+Naming examples:
+
+```text
+workspace/db/server.db
+workspace/db/mainnet_bot_1.db
+workspace/db/testnet_bot_2.db
+workspace/db/simnet_bot_3.db
+workspace/db/backtest_bot_4.db
+workspace/db/sweep_1.db
+workspace/db/sweeprun_1.db
+```
+
+Reset rule:
+
+- To reset one bot, delete that bot's DB file and create/start from
+  config/template again. That is effectively a new bot instance.
+- To clear one mode, delete that mode prefix, for example
+  `workspace/db/simnet_bot_*.db`.
+- To rerun a sweep/sweeprun artifact, delete that instance DB file and restart
+  from config.
+- Do not migrate old bot/sweep runtime state.
+- Do not keep Postgres compatibility paths.
+
+Existence rule:
+
+```text
+workspace/db/<exec_network>_bot_<id>.db exists => bot exists
+workspace/db/sweep_<id>.db exists => sweep exists
+workspace/db/sweeprun_<id>.db exists => sweeprun exists
+```
+
+Do not add central bot/sweep/sweeprun catalog tables unless file discovery is
+measured and proven insufficient. The file is the existence record, which avoids
+central catalog desync.
+
+Server owns `server.db`; see [Server DB](server-db.md).
+
+Server DB access rule:
+
+```text
+open connection
+read/write
+close connection
+```
+
+Long-lived server DB sessions are not allowed.
+
+## instance state
 
 Persist these tables first:
 
 - `bot`
-- `exchange_meta`
+- `account`
+- `bot_command`
+- `bot_event`
+- `bot_state`
+- `exchange_meta_snapshot`
 - `position`
 - `order`
 - `fill`
-- `event`
-- `command`
+
+Server DB tables first:
+
+- `server_sequence`
+- `server_state`
+- exchange_meta
 
 State ownership:
 
 - `Position` writes to the position table.
 - `Order` writes to the order table.
 - `Fill` writes to the fill table.
-- `Event` writes to the event table.
-- `ExchangeMeta` writes to the exchange meta table.
-- `CommandServer` writes bot runtime ownership and command rows.
-- `Bot` writes bot lifecycle/status rows.
+- `Event` writes to the bot-local event table.
+- `ExchangeMeta` writes to the server DB exchange meta table.
+- `CommandServer` handles Ray actor commands or bot-local command table polling.
+- `Bot` writes bot lifecycle/status/state rows to its bot DB.
 - `Datastore` does not save domain objects.
 
 Persistence verbs:
@@ -44,7 +111,6 @@ delete_state()  # explicit delete only
 Timestamp rule:
 
 - All stored timestamps are UTC.
-- Datastore sessions force the Postgres timezone to UTC.
 - Exchange timestamps are stored as received/normalized UTC values.
 - Store one canonical timestamp value. Convert to local time only for logs,
   reports, notebooks, and UI display.
@@ -52,38 +118,87 @@ Timestamp rule:
 ## entity map
 
 ```text
-BOTRUN ||--o{ POSITION
-BOTRUN ||--o{ ORDER
-BOTRUN ||--o{ FILL
-BOTRUN ||--o{ EVENT
-BOTRUN ||--o{ COMMAND
+SERVER ||--o{ EXCHANGE_META
+BOT ||--o{ ACCOUNT
+ACCOUNT ||--o{ POSITION
 POSITION ||--o{ ORDER
 ORDER ||--o{ FILL
 SWEEP ||--o{ SWEEPRUN
-SWEEPRUN ||--o{ BOTRUN_REF
+SWEEPRUN ||--o{ BOT_REF
 EXCHANGE_META }o--|| VENUE
 ```
 
 This is a logical relationship map only. Do not create database foreign keys.
 
-Bot run state:
+Bot DB shape:
 
-- Persist a redacted config snapshot with the bot run record.
-- Runtime start writes `pid`, `run_token`, `started_at`, and `last_seen_at`.
-- Runtime heartbeat updates `last_seen_at` using `bot_id` and `run_token`.
+- One running bot runtime owns one bot SQLite DB.
+- That DB has one logical `bot` row.
+- Do not repeat `bot_id` on every per-bot table. The DB file is already the
+  bot boundary.
+- Do not repeat `network` on every per-bot table. Put execution-network data on
+  the `bot` row or `account` row only when needed.
+- `account.account_id` keys accounts. A bot using two accounts has two
+  `account` rows.
+- `exchange_meta_snapshot` stores the bot's setup-time copy of required server
+  meta.
+- `position.account_id` links positions to an account.
+- `order.position_id` links orders to a position.
+- `fill.order_id` links fills to an order.
+- `bot.state_json` is the free-form runtime state field until a real query
+  proves a separate state table is needed.
+- `account.state_json` may hold account-local free-form state.
+- Persist a redacted config snapshot with the bot row.
+- Runtime start writes `runtime_id`, `run_token`, `started_at`, and
+  `last_seen_at` where useful.
+- Runtime heartbeat updates the local `bot` row using the current `run_token`.
 - `stopped` and `error` are terminal states.
 - Do not restart a terminal bot in place.
 - If the user wants to continue, clone/create a new bot run from current market
   conditions.
 - Track dirty state when cleanup fails.
 
+Server sequence shape:
+
+```text
+server_sequence(name primary key, value)
+```
+
+Initial sequence names:
+
+```text
+mainnet_bot
+testnet_bot
+simnet_bot
+backtest_bot
+sweep
+sweeprun
+```
+
+Allocation rule:
+
+```sql
+BEGIN IMMEDIATE;
+INSERT INTO server_sequence (name, value)
+  VALUES (:name, 0)
+  ON CONFLICT(name) DO NOTHING;
+UPDATE server_sequence
+  SET value = value + 1
+  WHERE name = :name
+  RETURNING value;
+COMMIT;
+```
+
+If allocation, server infra check, or DB setup fails, startup fails loud. The
+operator restarts. Do not add fallback IDs or a custom sequence recovery layer.
+
 Command state:
 
-- CLI inserts command rows.
-- Runtime polls command rows for its bot.
-- Runtime claims pending commands before executing them.
-- Runtime writes command result or error.
-- No Redis and no aiohttp until DB polling is proven too slow.
+- Ray actor calls are the first command path in managed mode.
+- Manual/notebook mode polls the bot-local `bot_command` table.
+- `bot_command`, `bot_event`, and `bot_state` are local bot DB tables.
+- There is no shared command table.
+- No Redis and no aiohttp.
 
 ## exchange meta
 
@@ -108,10 +223,8 @@ Rules:
 - Do not keep fetching within the 24 hour freshness window.
 - Use `upsert` for `exchange_meta`; it is reference data, not trading evidence.
 - No background refresh.
-- No central meta server.
-- `ExchangeMeta` must be usable without datastore.
-- If datastore is unavailable, fetch and use meta without storing it.
-- Missing datastore must not change the meta object behavior.
+- Server DB owns exchange meta.
+- If server DB setup fails, startup fails loud.
 - Precision and minimum-order checks use exchange meta.
 - If refresh is required and exchange fetch fails, fail startup.
 - `ExchangeAccount` and executors use the stored meta row loaded after the
@@ -174,7 +287,6 @@ First event shape can be simple:
 
 ```text
 timestamp
-bot_id
 level/type
 message
 optional JSON data
@@ -192,13 +304,14 @@ Examples:
 
 ## frontend read model
 
-Frontend is a separate scope from bot runtime. It reads datastore state and may
-insert command rows through the same command path used by CLI later.
+Frontend is a separate scope from bot runtime. It discovers DB files and reads
+per-instance SQLite read models. Commands go through Ray actor calls for managed
+runs or the bot-local `bot_command` table for manual runs.
 
 Frontend server responsibilities later:
 
 - List configured, running, and terminal bots.
-- Show bot status, PID evidence, run token, and heartbeat freshness.
+- Show bot status, Ray actor evidence, run token, and heartbeat freshness.
 - Show latest risk score and signal state.
 - Show open/closed positions, orders, fills, and events.
 - Show dirty state when cleanup failed.
@@ -215,4 +328,4 @@ GET /bots/{bot_id}/fills
 GET /bots/{bot_id}/events
 ```
 
-These routes read datastore only. They do not execute strategy logic.
+These routes read SQLite state only. They do not execute strategy logic.

@@ -15,7 +15,14 @@ Rules for files under `wiki/design/**`.
 2. `objects/AGENTS.md`: object design map.
 3. `objects/runtime.md`: master composer, runtime loop, modes, clock/replay,
    command server, telemetry, simulator binding.
-4. `state.md`: datastore, exchange meta, positions/orders/fills, events,
-   frontend read model.
-5. `strategy.md`: risk, signalers, executors.
-6. `sweeps.md`: sweep, sweeprun, botrun, parameters.
+4. `state.md`: SQLite datastore, exchange meta, positions/orders/fills,
+   events, frontend read model.
+5. `server.md`: Server ownership and process shape.
+6. `server-db.md`: Server DB ownership and access rules.
+7. `botmanager.md`: BotManager ownership and interfaces.
+8. `sweepmanager.md`: SweepManager ownership and interfaces.
+9. `server-api.md`: API route rules and route-list reference.
+10. `dataengines.md`: optional shared websocket/feed engines.
+11. `ray.md`: Ray actor/task process model.
+12. `strategy.md`: risk, signalers, executors.
+13. `sweeps.md`: sweep, sweeprun, bot config, parameters.

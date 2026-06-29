@@ -51,7 +51,7 @@ if cycle_losses >= max_cycle_losses:
 - Signalers are inputs to executors.
 - Do not build a signaler framework until multiple real signalers need shared
   structure.
-- Botrun config owns a `signalers` list.
+- Bot config owns a `signalers` list.
 - Every signaler config item has:
   - `name`
   - `interval`

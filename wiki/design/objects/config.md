@@ -11,7 +11,7 @@ tags: [design, objects, config]
 
 ## purpose
 
-Config is a simple object that holds validated botrun config.
+Config is a simple object that holds validated bot config.
 
 It does not own trading logic, runtime flow, persistence, or exchange access.
 
@@ -72,6 +72,6 @@ Internal functions:
 - Config opens only the config file and its credentials file.
 - Fail fast. Fail loud. Do not infer, repair, default, or silently ignore bad
   config.
-- Use Pydantic `SecretStr` for secrets such as `api_key` and database password.
+- Use Pydantic `SecretStr` for secrets such as `api_key`.
 - `model_dump(mode="json")` and `model_dump_json()` are the display path.
 - Do not add custom `to_json()` or an unredacted JSON view.

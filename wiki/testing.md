@@ -1,7 +1,7 @@
 ---
 title: testing
 created: 2026-06-21
-updated: 2026-06-21
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [testing, smoke, runtime]
@@ -12,6 +12,9 @@ tags: [testing, smoke, runtime]
 ## smoke test backtest
 
 Use this when asked to test backtest mode.
+
+Target proof is the CLI/Ray bot actor launch path. Until that exists, this is
+only a pre-Ray smoke check:
 
 ```bash
 rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml
@@ -28,6 +31,9 @@ Expected:
 
 Use this when asked to test simnet mode. The template filename still says
 `papertest` until the file is renamed.
+
+Target proof is the CLI/Ray bot actor launch path. Until that exists, this is
+only a pre-Ray smoke check:
 
 ```bash
 rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-papertest.toml
@@ -57,11 +63,17 @@ rtk uv run python -m tests.test_runtime_flow
 
 ## sweep fast check
 
+Target proof is the CLI/Ray task launch path. Until that exists, this is only a
+pre-Ray smoke check:
+
 ```bash
 rtk uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-fast.toml
 ```
 
 ## sweep standard check
+
+Target proof is the CLI/Ray task launch path. Until that exists, this is only a
+pre-Ray smoke check:
 
 ```bash
 rtk uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-standard.toml

@@ -1,7 +1,7 @@
 ---
 title: coding rules
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [coding, rules]
@@ -28,7 +28,9 @@ Write simple, clear code.
   - Boring over clever.
   - Fewest files wins.
   - YAGNI: if it is not needed now, skip it.
-- Prefer proven libraries for solved problems, for example SQLAlchemy for SQL.
+- Prefer the standard library for simple SQLite access. Use SQLAlchemy only
+  when the current code path benefits from it and still keeps server DB access
+  open/read-write/close.
 - Anti-factory: no factory for one product.
 - Anti-indirection: no wrapper that only calls another thing.
 - Anti-clever: clever code is a maintenance cost.
@@ -38,6 +40,9 @@ Write simple, clear code.
 - Async-first: use `await` for project code to keep flow consistent, unless
   forcing async requires indirection.
 - Capital protection beats simplicity when money can be lost.
+- Before implementing bot/runtime/sweep behavior, inspect `D:\rust\nuutrader6`
+  for working code. Ask before bringing code over. Adapt to this codebase;
+  never paste it in unchanged.
 
 ## rules
 
@@ -48,6 +53,8 @@ Write simple, clear code.
 - `from __future__ import annotations` is allowed.
 - Add no helper, wrapper, adapter, registry, fallback, cache, or abstraction
   unless the current path needs it.
+- Add no Postgres path, migration layer, or DB compatibility bridge unless the
+  user explicitly reverses the SQLite direction.
 - Add no property or computed field unless current code 100% needs it.
 - Remove unused helpers and dead stubs.
 - Comments explain intent, not mechanics.

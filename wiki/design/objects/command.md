@@ -1,7 +1,7 @@
 ---
 title: command server object
 created: 2026-06-24
-updated: 2026-06-24
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [design, objects, command, runtime]
@@ -13,9 +13,11 @@ tags: [design, objects, command, runtime]
 
 CommandServer lives in `command.py`.
 
-It is the runtime-side command owner. It writes runtime ownership evidence,
-polls the command table, claims commands for its bot, executes runtime commands,
-and writes command results.
+It is the runtime-side command owner inside BotRuntime.
+
+Ray mode uses Ray actor calls as the first command path. Manual/notebook mode
+has no actor handle, so CommandServer polls the bot-local `bot_command` table.
+Both modes write bot-local events, state, and heartbeat.
 
 It is not an aiohttp server.
 
@@ -23,7 +25,7 @@ Allowed connections:
 
 - `Nuubot`
 - Runtime callbacks for `status()` and `exit(reason)`
-- local process info for PID
+- instance SQLite DB
 
 ## interfaces
 
@@ -33,21 +35,19 @@ External commands:
 - `start()`
 - `stop()`
 - `heartbeat()`
-- `poll()`
-- `claim(command)`
+- `next_command()`
 - `execute(command)`
 
 ## contracts
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Nuubot, bot id, runtime callbacks. | Initialized CommandServer. | Creates runtime `run_token`, records `pid`, and updates the bot row through `nuubot.datastore`. If the DB update fails, runtime startup fails. |
-| `start()` | Initialized CommandServer. | Running CommandServer. | Starts command polling/heartbeat state. Does not execute commands until Runtime enters normal flow. |
+| `init()` | Nuubot, bot id, runtime callbacks. | Initialized CommandServer. | Creates runtime `run_token`, records runtime identity when available, and writes startup status to the bot DB. If that write fails, runtime startup fails. |
+| `start()` | Initialized CommandServer. | Running CommandServer. | Starts command/heartbeat state. Does not execute commands until Runtime enters normal flow. |
 | `stop()` | Running CommandServer. | Stopped CommandServer. | Writes stopped/terminal ownership state where `bot_id` and `run_token` match. |
 | `heartbeat()` | Current runtime ownership. | Updated bot row. | Updates `last_seen_at` only where `bot_id` and `run_token` match. |
-| `poll()` | Bot id. | Pending command list. | Reads pending commands for this bot. No Redis and no aiohttp. |
-| `claim(command)` | Pending command. | Claimed command. | Marks one command running only if it is still pending. |
-| `execute(command)` | Claimed command. | Command result. | Executes supported runtime command and writes done/error result. |
+| `next_command()` | Runtime command state. | Pending command or none. | In Ray mode, returns actor-delivered command. In manual mode, polls the bot-local `bot_command` table. |
+| `execute(command)` | Runtime command. | Command result. | Executes supported runtime command and writes done/error audit when needed. |
 
 Supported runtime commands first:
 
@@ -64,11 +64,10 @@ Deferred:
 Internal functions:
 
 - generate `run_token`.
-- read `os.getpid()`.
+- read runtime identity when available.
 - write runtime ownership to bot row.
 - update heartbeat.
-- poll pending command rows.
-- claim command rows.
+- read actor-local or bot-local DB command state.
 - dispatch command to runtime callback.
 - write command result.
 
@@ -76,8 +75,7 @@ Internal functions:
 
 - ownership writer.
 - heartbeat writer.
-- command poller.
-- command claimer.
+- actor command reader.
 - command result writer.
 - command dispatcher.
 
@@ -85,7 +83,7 @@ Internal functions:
 
 - Constructor/input order is `nuubot`, then object id, then qualifiers or
   callbacks.
-- `kill` exits the runtime process immediately and does not cancel orders or
+- `kill` exits the runtime immediately and does not cancel orders or
   close positions. It is restartable because the bot is not terminal.
 - `stop` requests graceful bot closure; runtime continues until Executor
   reports the bot is closed, then marks the bot terminal stopped.
@@ -93,7 +91,10 @@ Internal functions:
   instead.
 - `run_token` protects the current run from stale process writes.
 - Every runtime DB update must include `bot_id` and `run_token`.
-- PID is evidence, not truth.
-- CLI may validate PID liveness and heartbeat freshness for operator display.
-- No Redis until DB polling is proven too slow.
+- Ray actor state plus heartbeat freshness are liveness evidence in managed
+  mode.
+- Manual mode liveness is bot-local heartbeat freshness.
+- `bot_command`, `bot_event`, and `bot_state` are bot-local tables, never shared
+  server DB tables.
+- No Redis.
 - No aiohttp or port table for runtime commands.

@@ -1,7 +1,7 @@
 ---
 title: project
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [project, objective]
@@ -22,8 +22,9 @@ easy to understand, easy to run, and hard to overcomplicate.
 
 ## references
 
-- `D:\rust\nuutrader6`: working but bloated reference code. Use it for proven
-  patterns and lessons. Do not copy it wholesale.
+- `D:\rust\nuutrader6`: working reference code. Look here first for existing
+  behavior before designing new bot/runtime/sweep code. Ask the user before
+  bringing code over, then adapt it to `nuubot`; never copy it as-is.
 - `D:\rust\nuutrader-references\BlackBot`: working grid-bot behavior
   reference. Use it to understand the strategy. Do not paste it in.
 
@@ -34,6 +35,13 @@ easy to understand, easy to run, and hard to overcomplicate.
 - Protect capital before chasing profit.
 - Avoid hidden fallback behavior.
 - Use references for patterns, not wholesale copying.
+- Use SQLite for runtime state: one DB file per bot/sweep/sweeprun instance,
+  plus one persistent server DB for sequence numbers, server state, and
+  exchange meta.
+- Code/test bots through notebooks using direct BotRuntime.
+- Use Ray as the live managed process layer: bots are stateful actor wrappers
+  around BotRuntime and sweeps are stateless tasks.
+- Keep bot websocket/feed clients bot-local first.
 
 ## commands
 

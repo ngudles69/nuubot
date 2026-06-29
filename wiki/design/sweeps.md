@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-06-21
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -11,16 +11,17 @@ tags: [design, sweeps]
 
 ## definitions
 
-- `botrun`: one bot lifecycle: init, start, loop, stop.
+- `bot`: one runtime instance lifecycle: init, start, loop, stop.
 - `sweeprun`: one generated parameter set over one market/window period.
 - `sweep`: hyperparameter definition that permutates into sweepruns.
+- Ray runs sweeps as stateless tasks.
 
 ## hard rule
 
 ```text
-sweep output includes a full normal botrun config.
-botrun config contains no sweep-only fields.
-good sweeprun -> extract botrun config -> run backtest/simnet/mainnet.
+sweep output includes a full normal bot config.
+bot config contains no sweep-only fields.
+good sweeprun -> extract bot config -> run backtest/simnet/mainnet.
 ```
 
 Config hierarchy:
@@ -33,9 +34,9 @@ SweepConfig
 
 SweeprunConfig
   period/window settings
-  botrun: BotrunConfig
+  bot: BotConfig
 
-BotrunConfig
+BotConfig
   runtime
   market
   backtest
@@ -45,14 +46,14 @@ BotrunConfig
   risk
 ```
 
-Botrun runtime fields:
+Bot runtime fields:
 
 ```toml
 [runtime]
 mode = "sweep"
 ```
 
-Sweep-generated botruns use `runtime.mode = "sweep"` by default.
+Sweep-generated bot configs use `runtime.mode = "sweep"` by default.
 `RuntimeConfig` sets `data_network = "filenet"` and `exec_network = "sweep"`
 from that mode.
 `sweep.mode` still controls fast vs standard execution.
@@ -80,7 +81,7 @@ mode = "standard"  # or "fast"
 
 `sweep.mode` controls the execution shell:
 
-- DB writes.
+- SQLite writes.
 - logging detail.
 - account detail persistence.
 - indicator build path.
@@ -117,10 +118,15 @@ Never silently swap `grid` to `grid_fast` because `mode = "fast"`.
 
 Persistence rule:
 
-- fast sweep: write only after each sweeprun is done.
-- standard sweep: write only after each sweeprun is done.
-- mainnet/testnet/simnet: full DB persistence.
-- one-off backtest: full DB persistence by default.
+- fast sweep: Ray task writes final result to the sweep/sweeprun SQLite DB.
+- standard sweep: Ray task writes final result to the sweep/sweeprun SQLite DB.
+- mainnet/testnet/simnet: bot actor writes full persistence to its own SQLite
+  DB.
+- one-off backtest bot: Ray bot actor writes full persistence to
+  `backtest_bot_<id>.db`.
+- sweep-generated backtest/sweeprun: Ray task writes final result to the sweep
+  DB and optional per-sweeprun DB.
+- rerun/reset: delete the sweep/sweeprun SQLite file and run again.
 
 ## objective
 
@@ -136,9 +142,8 @@ Build two small proofs before building the full sweep system.
 
 1. Fast sweep mode:
 
-```text
-uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-fast.toml
-```
+Target proof runs through the CLI/Ray task launch path. The current
+`python -m nuubot.core.sweep` command is only a pre-Ray smoke check.
 
 Purpose:
 
@@ -150,7 +155,7 @@ Purpose:
 
 Skip:
 
-- DB.
+- per-loop DB writes.
 - command server.
 - websocket.
 - runtime lifecycle ceremony.
@@ -167,20 +172,17 @@ Current code note:
 
 2. Standard sweep mode:
 
-```text
-uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-standard.toml
-```
+Target proof runs through the CLI/Ray task launch path. The current
+`python -m nuubot.core.sweep` command is only a pre-Ray smoke check.
 
 Purpose:
 
 - Generate normal backtest configs.
-- Run each config through `Runtime(config)`.
+- Run each config through a Ray task using the canonical backtest loop.
 - Prove generated sweepruns can use the canonical backtest loop.
 
 Skip:
 
-- workers.
-- DB.
 - full result schema.
 - mainnet/testnet/simnet mode.
 
@@ -192,8 +194,12 @@ Sweep persistence:
 
 - `SweepRow.config_json` is the loaded sweep config.
 - `SweepRow.results_json` is the whole sweep result summary.
-- `SweeprunRow.config_json` is the generated sweeprun config.
-- `SweeprunRow.results_json` is the individual sweeprun result.
+- The sweep DB owns generated sweeprun config summary and final result
+  summary.
+- A sweeprun DB, when created, owns that task's detailed evidence and
+  individual result.
+- Sweep existence is the sweep DB file.
+- Sweeprun existence is the sweeprun DB file when one is created.
 - Timing belongs under `results_json.timing`.
 - Do not add separate sweeprun timing columns such as `elapsed_ms`,
   `load_ms`, `indicator_ms`, or `execution_ms`.
@@ -282,11 +288,13 @@ similarity and the differences before using it for large data sets.
 ## flow
 
 ```text
+get sweep id from server DB sequence
+create sweep SQLite DB
 record sweep started_at
 generate permutations
-insert sweeprun rows with sweeprun config and botrun config
-run N workers
-store each sweeprun result in results_json, including timing
+insert sweeprun summaries with sweeprun config and bot config
+submit Ray tasks
+store each sweeprun result summary in the sweep DB, including timing
 mark sweep complete/error
 ```
 

@@ -1,7 +1,7 @@
 ---
 title: design overview
 created: 2026-06-20
-updated: 2026-06-21
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [design, overview]
@@ -12,11 +12,20 @@ tags: [design, overview]
 ## files
 
 1. [Objects](objects/AGENTS.md): object boundaries and contracts.
-2. [Runtime](objects/runtime.md): master composer, loop, clock, command table,
+2. [Runtime](objects/runtime.md): master composer, loop, clock, command path,
    telemetry.
-3. [State](state.md): datastore, botrun state, exchange meta, reconciliation.
-4. [Strategy](strategy.md): risk, signalers, executors.
-5. [Sweeps](sweeps.md): sweep, sweeprun, botrun, parameter shape.
+3. [State](state.md): SQLite state, bot state, exchange meta,
+   reconciliation.
+4. [Server](server.md): Server, managers, CLI helper, Ray
+   ownership.
+5. [Server DB](server-db.md): Server DB ownership and access rules.
+6. [BotManager](botmanager.md): bot control-plane ownership.
+7. [SweepManager](sweepmanager.md): sweep control-plane ownership.
+8. [Server API](server-api.md): route rules and route-list reference.
+9. [DataEngines](dataengines.md): optional shared websocket/feed engines.
+10. [Ray](ray.md): Ray actor/task process model.
+11. [Strategy](strategy.md): risk, signalers, executors.
+12. [Sweeps](sweeps.md): sweep, sweeprun, bot config, parameter shape.
 
 ## problem
 
@@ -33,25 +42,56 @@ without recreating the over-built shape of `nuutrader6`.
 - Keep simulator first-class for simnet/backtest work.
 - Keep executors free-form and simple.
 - Keep datastore infrastructure separate from domain persistence operations.
-- Keep each bot as a standalone unit with its own local command surface.
+- Keep each running bot/sweep/sweeprun as a standalone unit with its own SQLite
+  file.
+- Keep one persistent server SQLite DB for sequence numbers, server state, and
+  exchange meta.
+- Keep Server as the admin/API/control process that owns managers.
+- Keep BotRuntime runnable directly from notebooks without Ray.
+- Use Ray as the live managed process layer for bot actors and sweep tasks.
+- Keep live bot websocket/feed clients bot-local first.
 
 ## decisions
 
 - Use a Python package folder for real code.
-- Run a bot as `uv run python -m nuubot.core.runtime -f <paramfile>`.
-- Run a sweep as `uv run python -m nuubot.core.sweep -f <paramfile>`.
+- Code/test bots through notebooks using direct BotRuntime.
+- Run live managed bots through Server/BotManager using Ray actor launch.
+- Run a sweep through Server/SweepManager using Ray task launch.
+- CLI is a thin operator helper over the same manager/helper functions used by
+  API routes.
 - Use TOML for `<paramfile>`.
 - Treat credentials as part of config for now.
 - Persist config snapshots with credentials redacted or omitted.
 - Likely use `async_hyperliquid` for Hyperliquid exchange access.
-- Use SQLAlchemy for datastore access.
-- Current CLI/datastore prototype uses local SQLite files under `workspace/db`.
-- PostgreSQL remains the intended later production engine.
-- `datastore.py` only owns database infrastructure:
-  - initialize every configured database
-  - create all SQLAlchemy tables and indexes if missing
-  - expose SQLAlchemy sessions
-  - dispose owned engines
+- Use SQLAlchemy Core/DDL for SQLite when it keeps table creation and writes
+  simple; do not keep long-lived server DB sessions or ORM object graphs.
+- SQLite is the datastore target.
+- Do not add Postgres, migration, dual-read/write, or compatibility paths.
+- `nuubot_setup()` initializes only the persistent server SQLite DB and loads
+  meta.
+- `nuubot_setup()` refreshes exchange meta when the table is empty or the newest
+  row is older than 24 hours.
+- Server/control-plane setup calls `nuubot_setup()` once.
+- Runtime setup checks server infra/meta once and calls `bot_setup(exec_network,
+  bot_id)` once.
+- `bot_setup()` creates/opens the per-bot SQLite DB and loads the bot row,
+  accounts, positions, orders, fills, and free-form state.
+- Each bot actor, sweep task, and sweeprun task initializes its own SQLite DB
+  file and tables if missing.
+- Per-bot DB tables do not repeat `bot_id`; the SQLite file is the bot
+  boundary.
+- Server DB access is open connection, read/write, close.
+- Instance DB access is owned by the running actor/task.
+- Ray is first-class:
+  - BotRuntime is plain Python.
+  - live managed bots are stateful Ray actor wrappers around BotRuntime.
+  - sweeps are stateless Ray tasks.
+  - add `ray` as a project dependency and install with `rtk uv sync`.
+- Ray is not the Server. Server uses Ray.
+- Shared DataEngines are deferred until per-bot feeds fail against a measured
+  exchange limit, bandwidth, CPU, or fanout problem.
+- API/routes validate input, call one manager/helper function, and return the
+  result.
 - Datastore operations belong to the domain objects that own the meaning.
 - Use explicit persistence verbs:
   - `insert_state()`
@@ -86,28 +126,40 @@ without recreating the over-built shape of `nuutrader6`.
 | `Config` | [objects/config.md](objects/config.md) | Simple validated config holder. |
 | `Account` | [objects/account.md](objects/account.md) | Exchange account composer, simulator, ledger. |
 | `Ledger` | [objects/ledger.md](objects/ledger.md) | Position, order, fill collection. |
-| `Datastore` | [objects/datastore.md](objects/datastore.md) | PostgreSQL and SQLAlchemy boundary. |
+| `Datastore` | [objects/datastore.md](objects/datastore.md) | SQLite boundary. |
+| `Server` | [server.md](server.md) | Parent/control process and infra owner. |
+| `Server DB` | [server-db.md](server-db.md) | Shared SQLite sequence/meta/server-state DB. |
+| `BotManager` | [botmanager.md](botmanager.md) | Bot create/load/start/stop/status owner. |
+| `SweepManager` | [sweepmanager.md](sweepmanager.md) | Sweep create/run/status owner. |
+| `Server API` | [server-api.md](server-api.md) | Thin API route boundary. |
+| `DataEngines` | [dataengines.md](dataengines.md) | Optional shared live feed services. |
+| `Ray` | [ray.md](ray.md) | Actor/task process layer. |
 | `WsData` / `FileData` | [objects/data.md](objects/data.md) | Live websocket data and historical file data. |
 | `Signaler` | [objects/signaler.md](objects/signaler.md) | Indicators and signal consensus. |
 | `Executor` | [objects/executor.md](objects/executor.md) | Strategy execution logic. |
-| `Cli` | [objects/cli.md](objects/cli.md) | Bot manager program. |
+| `Cli` | [objects/cli.md](objects/cli.md) | Thin operator helper. |
 | `CommandServer` | [objects/command.md](objects/command.md) | Runtime command-table owner. |
 
 ## component map
 
 ```text
-Sweep -> Sweeprun -> Botrun config -> Runtime/Bot
-Program entrypoint -> Nuubot -> Config + Datastore
-Cli -> Datastore session -> bot rows
-Cli -> Runtime process
-Cli -> command table
-Runtime/Bot -> Nuubot
+Sweep -> Sweeprun -> Bot config -> Runtime/Bot
+Program entrypoint -> Nuubot -> Config + Server DB
+Server -> nuubot_setup -> BotManager -> Ray bot actor
+Server -> SweepManager -> Ray sweep task
+API route -> Manager/helper function -> result
+Cli -> Manager/helper function -> result
+Bot actor -> bot SQLite DB
+Sweep task -> sweep/sweeprun SQLite DB
+Notebook -> BotRuntime -> bot SQLite DB
+Runtime/Bot actor -> short server DB check/meta read
+Runtime/Bot actor -> bot_setup -> Bot row + Accounts + Positions + Orders + Fills + State
 Runtime/Bot -> Clock -> ExchangeData snapshot
-Runtime/Bot -> CommandServer -> command table
+Runtime/Bot -> CommandServer -> Ray actor command or bot-local bot_command
 Runtime/Bot -> Risk -> Signaler -> Executor
 Executor -> Account -> Ledger -> Position -> Order -> Fill
-Runtime/Domain objects -> Datastore
-Frontend later -> Datastore + per-bot CommandServer
+Runtime/Domain objects -> instance SQLite DB
+Frontend later -> DB file discovery + per-instance SQLite read model
 ```
 
 ## connection rule
@@ -135,12 +187,16 @@ CommandServer(nuubot, bot_id, runtime_callbacks)
 
 ## non-goals first
 
-- No central server.
 - No frontend implementation.
 - No runtime-forced risk exit yet.
 - No executor action-request framework.
 - No protocol/base class hierarchy unless real code needs it.
-- No Alembic/migration layer yet.
+- No Alembic/migration layer.
+- No Postgres.
+- No custom process manager beside Ray.
+- No CLI-owned bot/sweep/datastore business logic.
+- No shared websocket server first.
+- No Redis.
 - No multiple runtime classes for mainnet/testnet/simnet/backtest yet.
 - No freeze command yet.
 - No full telemetry framework yet.
@@ -149,14 +205,15 @@ CommandServer(nuubot, bot_id, runtime_callbacks)
 
 ## proof needs
 
-- `uv run python -m nuubot.core.runtime -f <paramfile>` starts a runnable bot
-  scaffold.
-- DB tables are created if missing.
-- Bot row is written.
+- Notebook can start direct BotRuntime without Ray.
+- CLI/Ray starts a runnable bot actor for managed live runs.
+- Ray can start a bot actor.
+- Ray can start sweep tasks.
+- Server SQLite DB is created if missing by `nuubot_setup()`.
+- Bot/sweep/sweeprun SQLite DB files are created if missing by actor/task init.
+- Bot DB file existence proves the bot exists.
 - Redacted config snapshot is stored with the bot row.
-- Runtime writes PID, run token, status, and heartbeat to the bot row.
-- Runtime polls the command table for commands.
-- Port is released on terminal stop/error.
+- Runtime writes status and heartbeat evidence to its bot DB.
 - Dirty state is visible if cleanup fails.
 - `Risk.score()` exists and returns a score.
 - A simple executor can call risk, signaler, exchange account, and position

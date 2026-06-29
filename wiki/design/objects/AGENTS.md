@@ -23,7 +23,7 @@ Rules for files under `wiki/design/objects/**`.
 3. `config.md`: config holder.
 4. `account.md`: exchange account composer, simulator, ledger.
 5. `ledger.md`: positions, orders, fills.
-6. `datastore.md`: PostgreSQL and SQLAlchemy boundary.
+6. `datastore.md`: SQLite datastore boundary.
 7. `data.md`: `WsData`, `FileData`, meta helpers.
 8. `signaler.md`: signaler, indicators, consensus.
 9. `executor.md`: strategy execution logic.

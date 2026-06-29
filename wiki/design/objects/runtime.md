@@ -1,7 +1,7 @@
 ---
 title: runtime design
 created: 2026-06-20
-updated: 2026-06-25
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [design, runtime, bot]
@@ -14,6 +14,9 @@ tags: [design, runtime, bot]
 Runtime is the master composer. It owns the visible bot sequence and calls only
 the objects it composes.
 
+Runtime is plain Python and must run without Ray. In managed live runs, a thin
+Ray actor wraps Runtime.
+
 Runtime should read close to `BlackBot.py`: direct setup, direct loop, direct
 calls into owned objects. Every runtime line or connection should map to one
 composed object.
@@ -21,6 +24,7 @@ composed object.
 Allowed composed objects:
 
 - `Nuubot`
+- instance SQLite DB
 - `Clock`
 - `WsData` or `FileData`
 - `Account`
@@ -46,8 +50,10 @@ External commands:
 
 Runtime receives:
 
-- config file path through the module entrypoint.
-- shared infra from `Nuubot`.
+- `exec_network` and `bot_id` from manual/notebook code or the Ray actor
+  entrypoint.
+- server infra through short `server.db` reads when needed.
+- bot state from `bot_setup(exec_network, bot_id)`.
 - timer events from `Clock`.
 - market snapshots from `WsData` or `FileData`.
 
@@ -63,7 +69,7 @@ Runtime outputs:
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Config path or loaded Config. | Initialized Runtime. | Sets up Nuubot infra, initializes CommandServer, and composes owned runtime objects. If CommandServer cannot write runtime ownership to DB, startup fails. |
+| `init()` | `exec_network`, `bot_id`. | Initialized Runtime. | Checks server infra/meta once, calls `bot_setup(exec_network, bot_id)` once, initializes CommandServer, and composes owned runtime objects. If server check or bot DB setup fails, startup fails. |
 | `start()` | Initialized Runtime. | Running Runtime. | Starts owned objects in runtime order and registers the runtime timer. |
 | `stop()` | Running or failed Runtime. | Stopped Runtime. | Stops owned objects and exposes dirty cleanup state if cleanup fails. |
 | `loop()` | Running Runtime. | Completed run. | Calls `clock.run(Runtime.next)`. Clock owns wall-time vs replay triggering. |
@@ -75,7 +81,8 @@ Runtime outputs:
 
 Internal functions:
 
-- set up Nuubot infra.
+- receive exec network and bot id from notebook/manual code or BotManager/Ray.
+- load/create actor-owned bot state through `bot_setup`.
 - initialize command server.
 - compose owned objects.
 - initialize owned objects.
@@ -139,7 +146,7 @@ Canonical loop:
 next(event optional)
   now = Clock.now_ms()
 
-  command = CommandServer.poll()
+  command = CommandServer.next_command()
 
   if command is kill:
     exit("kill")
@@ -232,7 +239,8 @@ Implementation gaps:
 - rename `loop_once` to `next`.
 - route live and backtest through `clock.run(Runtime.next)`.
 - move backtest replay driving into Clock.
-- add command polling.
+- wire Ray actor command calls and bot-local DB command polling into
+  CommandServer.
 - add mandatory reconcile before every non-kill operation.
 - add started/flat/closing state handling through Executor.
 - add order-exit handling, new-order submission, and DB status writes through
@@ -263,8 +271,8 @@ data and execution networks are derived from it:
 describes where execution goes. They are derived properties, not authored
 config fields. `mode` drives them and prevents invalid combinations.
 
-Sweep is a bot runtime mode for sweep-generated botruns. Fast sweep may still
-use its own tight execution shell for speed.
+Sweep is a bot runtime mode for sweep-generated bot configs. Fast sweep runs as Ray
+tasks and may still use its own tight execution shell for speed.
 
 `bar` means candle.
 
@@ -310,7 +318,7 @@ Hidden in ExchangeAccount: exchange calls, validation details, credential checks
 ```text
 Bot
   ConfigData
-  Datastore
+  Instance SQLite DB
   CommandServer
   Clock
   ExchangeMeta
@@ -429,7 +437,8 @@ Same-timestamp backtest events collapse into one timestamp batch:
 
 ## data engines
 
-- `WsDataEngine` is the live websocket data source.
+- Bot-local `WsData` is the live websocket source first.
+- `WsData` is the bot-facing live snapshot reader.
 - `FileDataEngine` is the historical file data source.
 - `workspace/data/**` holds historical data.
 - Current historical data under `workspace/data` comes from Binance.
@@ -461,8 +470,10 @@ Bot rule:
 
 `CommandServer` lives in `command.py`.
 
-It is DB-backed and uses the command table. It is not aiohttp and it does not
-own a port.
+It is runtime-local. Ray actor calls are the first command path in managed
+mode. Manual/notebook mode polls the bot-local `bot_command` table.
+Command rows are bot DB audit/control rows, not a process manager.
+It is not aiohttp and it does not own a port.
 
 Runtime startup:
 
@@ -475,36 +486,42 @@ command.init()
 
 ```text
 status = running
-pid = os.getpid()
+runtime_id = runtime identity
 run_token = new uuid
 started_at = now
 last_seen_at = now
 ```
 
-If that DB update fails, runtime startup fails.
+If bot DB setup or required status write fails, runtime startup fails.
 
-Runtime updates bot rows only with matching ownership:
+Runtime updates the local `bot` row only with matching ownership:
 
 ```text
-where bot_id = current bot
-  and run_token = current run token
+where run_token = current run token
 ```
 
-This prevents stale runtime processes from overwriting newer runs.
+This prevents stale actor runs from overwriting newer runs.
 
-Command table:
+Optional command audit table:
 
 ```text
+bot_command
 command_id
-bot_id
 command
 payload_json
 status
 result_json
 created_at
-claimed_at
+received_at
 completed_at
 error
+```
+
+Bot-local state/event tables:
+
+```text
+bot_state
+bot_event
 ```
 
 Supported commands first:
@@ -524,7 +541,7 @@ freeze
 
 Minimum runtime observability:
 
-- Bot row `pid`, `run_token`, `status`, and `last_seen_at`.
+- Bot row `runtime_id`, `run_token`, `status`, and `last_seen_at`.
 - Loop count.
 - Last loop timestamp.
 - Last BBO processed timestamp.
@@ -543,4 +560,6 @@ Telemetry is for quick validation, not a large metrics system.
 Status is in memory for the running process:
 
 - Runtime writes heartbeat through `CommandServer`.
-- CLI may check heartbeat freshness and PID liveness for operator display.
+- BotManager checks Ray actor state and heartbeat freshness for managed runs.
+- Manual runs expose status through bot-local `bot_state`, `bot_event`, and
+  heartbeat freshness.

@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from nuubot import Nuubot
+from nuubot import nuubot_setup
 from nuubot.core.clock import Clock, ReplayClock, TimeEvent
 from nuubot.core.config import load_botrun_config
 from nuubot.core.dtypes import Bar, BotRunResult, MarketSnapshot, Mode
@@ -26,7 +26,7 @@ RUNTIME_TIMER = "runtime"
 
 class Runtime:
     def __init__(self, config: BotrunConfig) -> None:
-        self.nuubot = Nuubot().setup()
+        self.nuubot = nuubot_setup()
         self.config = config
         self.mode = runtime_mode(config)
         self.log = logger(bot_log_path(config))
@@ -134,7 +134,7 @@ class Runtime:
         # telemetry.loops += 1
         # now_ms = Clock.now_ms()
         #
-        # command = CommandServer.poll()
+        # command = CommandServer.next_command()
         #
         # if command is kill:
         #   exit("kill")
@@ -195,7 +195,7 @@ class Runtime:
         #
         # end_loop:
         #   CommandServer.heartbeat()
-        #   owning objects write DB status/events
+        #   owning objects write SQLite status/events
         #   log telemetry
         raise NotImplementedError("target runtime loop is pseudocode only")
 

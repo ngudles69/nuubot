@@ -1,73 +1,88 @@
 ---
 title: datastore object
 created: 2026-06-23
-updated: 2026-06-24
+updated: 2026-06-29
 type: wiki
 status: active
-tags: [design, objects, datastore, sqlalchemy]
+tags: [design, objects, datastore, sqlite, sqlalchemy]
 ---
 
 # datastore object
 
 ## purpose
 
-Datastore is the SQLAlchemy boundary.
+Datastore is the SQLite boundary.
 
-It owns the DB connection, SQLAlchemy models, database creation, tables, and
-indexes.
+It owns SQLite file creation, table creation, indexes, and short-lived
+connections.
 
-Current runnable prototype uses local SQLite files under `workspace/db`, one
-file per configured database name. PostgreSQL can replace the engine later
-without changing caller ownership.
+SQLite is canonical. Do not add Postgres, migration, or dual-engine paths.
+
+There are two DB kinds:
+
+- server DB: persistent shared DB created by `nuubot_setup()`.
+- instance DB: local per-bot, per-sweep, or per-sweeprun DB created by the Ray
+  actor/task init.
 
 ## interfaces
 
 External commands:
 
-- `init()`
-- `stop()`
-- `session()`
+- `init_server()`
+- `init_bot(path)`
+- `init_sweep(path)`
+- `connect(path)`
+- `next_sequence(name)`
 
 Datastore receives:
 
-- validated app config.
-- SQLAlchemy model definitions.
+- SQLite file path.
+- table definitions.
 
 Datastore outputs:
 
-- engine/session access.
-- created databases, tables, and indexes.
-- SQLAlchemy models.
+- short-lived connection/session access.
+- created SQLite files, tables, and indexes.
+- table definitions.
 
 ## contracts
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Validated app config. | Initialized Datastore. | Opens SQLAlchemy engines for every configured database and runs SQLAlchemy metadata creation. Creates missing databases/tables/indexes. Fails loud on connection or schema errors. |
-| `session(database="server")` | Initialized Datastore and database name. | SQLAlchemy session. | Caller uses SQLAlchemy standard syntax. No raw SQL by default. |
-| `stop()` | Initialized Datastore. | Stopped Datastore. | Disposes owned SQLAlchemy engines. |
+| `init_server()` | Server DB path. | Ready server DB. | Creates `workspace/db/server.db` and server tables if missing. Fails loud on schema errors. |
+| `init_bot(path)` | Bot DB path. | Ready bot DB. | Creates the bot SQLite file and `bot`, `account`, `bot_command`, `bot_event`, `bot_state`, `exchange_meta_snapshot`, `position`, `order`, and `fill` tables if missing. Fails loud on schema errors. |
+| `init_sweep(path)` | Sweep/sweeprun DB path. | Ready sweep DB. | Creates that SQLite file and sweep tables if missing. Fails loud on schema errors. |
+| `connect(path)` | SQLite file path. | Short-lived session/connection. | Open, read/write, close. No long-lived server DB connection. |
+| `next_sequence(name)` | Sequence name. | Next integer. | Uses one short SQLite write transaction with `BEGIN IMMEDIATE`. If allocation fails, caller startup fails. |
 
 ## processing
 
 Internal functions:
 
-- open configured SQLAlchemy engines.
-- create every configured database if missing.
-- create SQLAlchemy tables and metadata indexes if missing.
-- expose SQLAlchemy sessions.
+- open SQLite connection/session for one file.
+- create tables and indexes if missing.
+- allocate server sequence numbers.
+- close after read/write.
 - fail loud on schema creation errors.
 
 ## key helpers
 
+- DB path builder.
 - session creation.
-- database name list from config.
 
 ## notes
 
-- Code should use SQLAlchemy standard syntax, not raw SQL by default.
+- Use SQLAlchemy Core/DDL for SQLite when it keeps table creation and writes
+  simple.
+- Do not use long-lived server DB sessions or ORM object graphs for server DB
+  access.
 - No foreign keys are required or allowed.
 - Domain objects own the meaning of persisted data.
 - Datastore owns infrastructure only.
 - Datastore does not decide bot lifecycle, order state, fill state, or PnL.
-- `create_databases()`, `create_tables()`, and `create_indexes()` are not public
-  datastore commands. `init()` owns that setup.
+- Server DB writes use open connection, read/write, close.
+- Actor/task DB writes may use actor/task-owned local access while the
+  instance is running.
+- Per-bot DB tables do not repeat `bot_id`.
+- Account, position, order, and fill rows follow the parent chain:
+  account -> position -> order -> fill.

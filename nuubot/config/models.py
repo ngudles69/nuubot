@@ -39,15 +39,13 @@ class DatabasesConfig(BaseModel):
 
     @field_validator("server", "mainnet", "testnet", "simnet", "backtest", "sweeps")
     @classmethod
-    def valid_postgres_name(cls, value: str) -> str:
+    def valid_name(cls, value: str) -> str:
         if value.strip() != value:
             raise ValueError("database names must not have surrounding whitespace")
         if not value or not ("a" <= value[0] <= "z"):
             raise ValueError("database names must start with a lowercase letter")
         if any(not (("a" <= char <= "z") or ("0" <= char <= "9") or char == "_") for char in value):
             raise ValueError("database names must use lowercase letters, digits, and underscores")
-        if len(value) > 63:
-            raise ValueError(f"PostgreSQL database name is too long: {value}")
         return value
 
 
@@ -55,15 +53,6 @@ class HyperliquidConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_network: HyperliquidNetwork
-
-
-class DatabaseCredentials(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    host: str
-    port: int = Field(ge=1, le=65535)
-    user: str
-    password: SecretStr
 
 
 class HyperliquidAccountCredentials(BaseModel):
@@ -91,7 +80,6 @@ class HyperliquidCredentials(BaseModel):
 class CredentialsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    database: DatabaseCredentials
     hyperliquid: HyperliquidCredentials
 
 

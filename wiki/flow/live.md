@@ -1,7 +1,7 @@
 ---
 title: live runtime flow
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [flow, runtime, live, mainnet, testnet]
@@ -25,14 +25,18 @@ Account uses real exchange execution.
 ## setup
 
 ```text
-nuubot = nuubot_setup()
-config = botrun config
+Notebook/manual coding path may instantiate BotRuntime directly.
+Live managed path uses Server/BotManager and Ray.
+bot_id = server DB sequence for <mainnet_or_testnet>_bot
+bot_db = workspace/db/<mainnet_or_testnet>_bot_<bot_id>.db
+start BotRuntime directly or through Ray actor with exec_network, bot_id
+bot = bot_setup(exec_network=<mainnet_or_testnet>, bot_id=bot_id)
 
-data = WsData(config)
+data = WsData(bot.config)
 clock = Clock(mode=mainnet_or_testnet, data=data, loop_seconds=loop_seconds)
 account = Account(nuubot, account_id, exec_network=mainnet_or_testnet)
 executor = Executor(nuubot, bot_id, account)
-signaler = Signaler(config)
+signaler = Signaler(bot.config)
 command = CommandServer(nuubot, bot_id, callbacks)
 ```
 
@@ -78,7 +82,7 @@ fires.
 ```text
 now = Clock.now_ms()
 
-command = CommandServer.poll()
+command = CommandServer.next_command()
 
 if command is kill:
   exit("kill")
@@ -138,9 +142,12 @@ if Executor.can_submit_orders():
 
 end_loop:
   CommandServer.heartbeat()
-  owning objects write DB status/events
+  owning objects write SQLite status/events
   log telemetry
 ```
+
+Direct notebook/manual mode owns the BotRuntime process. Managed live mode uses
+Ray for actor lifecycle. BotRuntime owns `bot_db`.
 
 ## stop semantics
 

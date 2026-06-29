@@ -1,13 +1,37 @@
 from nuubot.datastore.datastore import Datastore
-from nuubot.datastore.schemas import BotRow, CommandRow, FillRow, OrderRow, PositionRow, SweepRow, SweeprunRow
+from nuubot.datastore.schemas import (
+    AccountRow,
+    BotCatalogRow,
+    BotRow,
+    CommandRow,
+    ExchangeMetaSnapshotRow,
+    ExchangeMetaRow,
+    FillRow,
+    OrderRow,
+    PositionRow,
+    ServerSequenceRow,
+    ServerStateRow,
+    SweeprunCatalogRow,
+    SweeprunRow,
+    SweepCatalogRow,
+    SweepRow,
+)
 
 __all__ = [
+    "AccountRow",
+    "BotCatalogRow",
     "BotRow",
     "CommandRow",
     "Datastore",
+    "ExchangeMetaSnapshotRow",
+    "ExchangeMetaRow",
     "FillRow",
     "OrderRow",
     "PositionRow",
+    "ServerSequenceRow",
+    "ServerStateRow",
+    "SweeprunCatalogRow",
     "SweepRow",
+    "SweepCatalogRow",
     "SweeprunRow",
 ]

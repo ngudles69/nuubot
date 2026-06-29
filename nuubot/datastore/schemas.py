@@ -30,13 +30,119 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+# Server Tables
+
+class ServerSequenceRow(Base):
+    __tablename__ = "server_sequence"
+
+    name                : Mapped[str]          = mapped_column(String(64), primary_key=True)
+    value               : Mapped[int]          = mapped_column(BigInteger, default=0)
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ServerStateRow(Base):
+    __tablename__ = "server_state"
+
+    key                 : Mapped[str]          = mapped_column(String(128), primary_key=True)
+    value_json          : Mapped[str]          = mapped_column(Text, default="{}")
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class BotCatalogRow(Base):
+    __tablename__ = "bot_catalog"
+
+    bot_id              : Mapped[int]          = mapped_column(BigInteger, primary_key=True)
+    exec_network        : Mapped[str]          = mapped_column(String(32), index=True)
+    db_path             : Mapped[str]          = mapped_column(Text)
+    status              : Mapped[str]          = mapped_column(String(32), index=True, default="configured")
+    actor_id            : Mapped[str | None]   = mapped_column(Text, nullable=True)
+    run_token           : Mapped[str | None]   = mapped_column(String(64), nullable=True)
+    started_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    last_seen_at        : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    stopped_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    error_code          : Mapped[str | None]   = mapped_column(String(64), nullable=True)
+    error_text          : Mapped[str | None]   = mapped_column(Text, nullable=True)
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class SweepCatalogRow(Base):
+    __tablename__ = "sweep_catalog"
+
+    sweep_id            : Mapped[int]          = mapped_column(BigInteger, primary_key=True)
+    db_path             : Mapped[str]          = mapped_column(Text)
+    status              : Mapped[str]          = mapped_column(String(32), index=True, default="configured")
+    started_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    last_seen_at        : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    stopped_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    error_code          : Mapped[str | None]   = mapped_column(String(64), nullable=True)
+    error_text          : Mapped[str | None]   = mapped_column(Text, nullable=True)
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class SweeprunCatalogRow(Base):
+    __tablename__ = "sweeprun_catalog"
+
+    sweeprun_id         : Mapped[int]          = mapped_column(BigInteger, primary_key=True)
+    sweep_id            : Mapped[int | None]   = mapped_column(BigInteger, nullable=True, index=True)
+    db_path             : Mapped[str]          = mapped_column(Text)
+    status              : Mapped[str]          = mapped_column(String(32), index=True, default="configured")
+    started_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    last_seen_at        : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    stopped_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    error_code          : Mapped[str | None]   = mapped_column(String(64), nullable=True)
+    error_text          : Mapped[str | None]   = mapped_column(Text, nullable=True)
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ExchangeMetaRow(Base):
+    __tablename__ = "exchange_meta"
+    __table_args__ = (UniqueConstraint("symbol", "kind"),)
+
+    meta_id             : Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol              : Mapped[str]          = mapped_column(String(64), index=True)
+    kind                : Mapped[str]          = mapped_column(String(16), index=True)
+    asset_id            : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    exchange_index      : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    max_leverage        : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    size_decimals       : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    price_decimals      : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    is_delisted         : Mapped[bool]         = mapped_column(Boolean, default=False)
+    is_canonical        : Mapped[bool | None]  = mapped_column(Boolean, nullable=True)
+    raw_json            : Mapped[str]          = mapped_column(Text, default="{}")
+    fetched_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 # Command Table
 
 class CommandRow(Base):
     __tablename__ = "command"
 
     command_id          : Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
-    bot_id              : Mapped[int]          = mapped_column(Integer, index=True)
     command             : Mapped[str]          = mapped_column(String(32), index=True)
     status              : Mapped[str]          = mapped_column(String(32), index=True, default="pending")
     payload_json        : Mapped[str]          = mapped_column(Text, default="{}")
@@ -58,17 +164,59 @@ class CommandRow(Base):
 class BotRow(Base):
     __tablename__ = "bot"
 
-    bot_id              : Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
-    sweeprun_id         : Mapped[int | None]   = mapped_column(Integer, nullable=True)
-    sweep_id            : Mapped[int | None]   = mapped_column(Integer, nullable=True)
-    status              : Mapped[str]          = mapped_column(String(32), index=True)
-    config_json         : Mapped[str]          = mapped_column(Text)
+    bot_key             : Mapped[str]          = mapped_column(String(16), primary_key=True, default="bot")
+    status              : Mapped[str]          = mapped_column(String(32), index=True, default="configured")
+    config_json         : Mapped[str]          = mapped_column(Text, default="{}")
+    state_json          : Mapped[str]          = mapped_column(Text, default="{}")
     # running/execution fields
-    pid                 : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    actor_id            : Mapped[str | None]   = mapped_column(Text, nullable=True)
     run_token           : Mapped[str | None]   = mapped_column(String(64), nullable=True)
     started_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
     last_seen_at        : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
     stopped_at          : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    error_code          : Mapped[str | None]   = mapped_column(String(64), nullable=True)
+    error_text          : Mapped[str | None]   = mapped_column(Text, nullable=True)
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class AccountRow(Base):
+    __tablename__ = "account"
+
+    account_id          : Mapped[str]          = mapped_column(String(64), primary_key=True)
+    role                : Mapped[str]          = mapped_column(String(32), index=True, default="")
+    name                : Mapped[str]          = mapped_column(String(64), index=True, default="")
+    exec_network        : Mapped[str]          = mapped_column(String(32), index=True, default="")
+    status              : Mapped[str]          = mapped_column(String(32), index=True, default="configured")
+    config_json         : Mapped[str]          = mapped_column(Text, default="{}")
+    state_json          : Mapped[str]          = mapped_column(Text, default="{}")
+
+    # standard tail fields
+    notes               : Mapped[str]          = mapped_column(Text, default="")
+    created_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ExchangeMetaSnapshotRow(Base):
+    __tablename__ = "exchange_meta_snapshot"
+    __table_args__ = (UniqueConstraint("symbol", "kind"),)
+
+    meta_id             : Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol              : Mapped[str]          = mapped_column(String(64), index=True)
+    kind                : Mapped[str]          = mapped_column(String(16), index=True)
+    asset_id            : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    exchange_index      : Mapped[int | None]   = mapped_column(BigInteger, nullable=True)
+    max_leverage        : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    size_decimals       : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    price_decimals      : Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    is_delisted         : Mapped[bool]         = mapped_column(Boolean, default=False)
+    is_canonical        : Mapped[bool | None]  = mapped_column(Boolean, nullable=True)
+    raw_json            : Mapped[str]          = mapped_column(Text, default="{}")
+    fetched_at          : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    snapshotted_at      : Mapped[datetime]     = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
     # standard tail fields
     notes               : Mapped[str]          = mapped_column(Text, default="")
@@ -124,7 +272,6 @@ class PositionRow(Base):
     position_id         : Mapped[int]          = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
     # parent ids
-    bot_id              : Mapped[int]          = mapped_column(BigInteger, index=True)
     account_id          : Mapped[str]          = mapped_column(Text, index=True)
 
     # required fields
@@ -184,7 +331,6 @@ class OrderRow(Base):
 
     # parent ids
     position_id         : Mapped[int]          = mapped_column(BigInteger, index=True)
-    bot_id              : Mapped[int]          = mapped_column(BigInteger, index=True)
     account_id          : Mapped[str]          = mapped_column(Text, index=True)
 
     # submitted / intent
@@ -250,7 +396,6 @@ class FillRow(Base):
 
     # parent ids
     order_id            : Mapped[int]          = mapped_column(BigInteger, index=True)
-    bot_id              : Mapped[int]          = mapped_column(BigInteger, index=True)
     account_id          : Mapped[str]          = mapped_column(Text, index=True)
 
     # Hyperliquid fill fields

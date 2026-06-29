@@ -13,10 +13,16 @@ class Nuubot:
     config: AppConfig | None = None
     datastore: Datastore | None = None
 
-    def setup(self) -> "Nuubot":
-        self.config = load_config(CONFIG_PATH)
+    def setup(self, path: Path = CONFIG_PATH) -> "Nuubot":
+        self.config = load_config(path)
         self.datastore = Datastore(self.config).init()
         return self
 
     def stop(self) -> None:
-        self.datastore.stop()
+        if self.datastore is not None:
+            self.datastore.stop()
+
+
+def nuubot_setup(path: Path = CONFIG_PATH) -> Nuubot:
+    nuubot = Nuubot()
+    return nuubot.setup(path)

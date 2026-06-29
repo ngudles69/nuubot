@@ -1,7 +1,7 @@
 ---
 title: data objects
 created: 2026-06-23
-updated: 2026-06-23
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [design, objects, data, websocket, filedata, meta]
@@ -11,12 +11,15 @@ tags: [design, objects, data, websocket, filedata, meta]
 
 ## purpose
 
-`WsData` owns websocket market data.
+Bot-local data objects own live websocket market data first.
+
+`WsData` is the bot-facing live data object. In the first design it opens and
+maintains the bot's own websocket/feed client.
 
 `FileData` owns historical file data.
 
-Meta reads and latest exchange reference data belong here as helper methods
-unless Account needs account-specific exchange access.
+Exchange meta is loaded by `Nuubot`/`ExchangeMeta` from the server DB. Data
+objects may receive already-loaded meta, but they do not own meta persistence.
 
 ## interfaces
 
@@ -27,7 +30,6 @@ External commands:
 - `stop()`
 - `snapshot(at=None)`
 - `history(interval, count)`
-- `latest_meta()`
 
 `FileData` also exposes:
 
@@ -46,7 +48,6 @@ Data objects output:
 - candle bars.
 - historical bars.
 - replay batches.
-- meta helper results when needed.
 
 ## contracts
 
@@ -57,7 +58,6 @@ Data objects output:
 | `stop()` | Running data object. | Stopped data object. | Closes live resources or clears replay runtime state. |
 | `snapshot(at=None)` | Optional live/replay time. | Market snapshot. | Live `at=None` returns latest available. Backtest `at=<time>` returns only data available at that replay time. |
 | `history(interval, count)` | Interval and required count. | Historical bars. | Returns enough closed history or fails loud if unavailable. |
-| `latest_meta()` | Venue/symbol context. | Latest reference/meta data. | Returns latest known meta helper data when data owns the read. |
 | `replay_batches()` | Prepared historical data. | Ordered replay batches. | Backtest only. Batches are timestamp ordered and same-timestamp events are grouped. |
 | `ingest_replay_batch(batch)` | One replay batch. | Updated snapshot state. | Backtest only. Ingests every event before runtime dispatch. |
 
@@ -65,8 +65,7 @@ Data objects output:
 
 Internal functions:
 
-- connect websocket.
-- subscribe to BBO/candles.
+- open bot-local websocket/feed subscriptions.
 - validate BBO readiness.
 - load historical files.
 - derive higher intervals.
@@ -82,7 +81,6 @@ Internal functions:
 - candle parser.
 - interval converter.
 - replay batch grouper.
-- meta reader.
 - historical file locator.
 - closed-candle detector.
 - same-timestamp batch merger.
@@ -90,6 +88,9 @@ Internal functions:
 ## notes
 
 - Runtime asks for snapshots; it does not parse data feeds.
+- Shared DataEngines are a later optimization only after per-bot feeds fail
+  against a measured exchange limit, bandwidth, CPU, or fanout problem.
+- Do not add Redis or a shared websocket server first.
 - Backtest data must avoid future leakage.
 - Live and backtest expose the same snapshot shape.
 - `at=None` means latest available live data. `at=<replay time>` means data

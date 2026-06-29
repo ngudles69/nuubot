@@ -1,7 +1,7 @@
 ---
 title: sweep flow
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-29
 type: wiki
 status: active
 tags: [flow, sweep, backtest]
@@ -11,11 +11,11 @@ tags: [flow, sweep, backtest]
 
 ## purpose
 
-Sweep generates many botrun configs and runs them to compare results.
+Sweep generates many bot configs and runs them to compare results.
 
-Sweep is a runtime mode for sweep-generated botruns.
+Sweep is a Ray task fanout for sweep-generated bot configs.
 
-Generated botruns usually use:
+Generated bot configs usually use:
 
 ```text
 runtime.mode = sweep
@@ -25,12 +25,14 @@ runtime.mode = sweep
 
 ```text
 sweep_config = load sweep file
+sweep_id = server DB sequence
+sweep_db = workspace/db/sweep_<sweep_id>.db
+create sweep DB and tables if missing
 parameter_grid = expand params
 
 for each parameter set:
-  botrun_config = copy base botrun config
+  bot_config = copy base bot config
   set runtime.mode = sweep
-  set bot_id
   set parameter values
 ```
 
@@ -42,6 +44,10 @@ Fast sweep skips runtime/clock ceremony for speed.
 bars = load_binance_bars(configs[0])
 
 for config in configs:
+  submit Ray task
+
+Ray task:
+  create sweeprun DB and tables if needed
   signaler = SignalerEmaCross(config)
   signals = signaler.ingest_many(bars)
 
@@ -64,7 +70,8 @@ no Runtime.next()
 ```
 
 Fast sweep uses ordered bars directly. It should not change trading logic, but
-it may skip runtime lifecycle, command server, DB writes, and per-loop logs.
+it may skip runtime lifecycle, command server, per-loop DB writes, and per-loop
+logs.
 
 Current code caveat:
 
@@ -75,10 +82,14 @@ Current code caveat:
 
 ## standard sweep
 
-Standard sweep proves generated botruns through normal runtime backtest.
+Standard sweep proves generated bot configs through normal runtime backtest.
 
 ```text
 for config in configs:
+  submit Ray task
+
+Ray task:
+  create sweeprun DB and tables if needed
   runtime = Runtime(config)
   runtime.init()
   runtime.start()
@@ -104,6 +115,13 @@ Clock.run()
 ```
 
 Standard sweep uses the same backtest clock path as one-off backtest.
+
+Rerun/reset:
+
+```text
+delete sweep_<id>.db or sweeprun_<id>.db
+submit Ray task again
+```
 
 ## compare
 
