@@ -32,7 +32,7 @@ External commands:
 - `init_bot(path)`
 - `init_sweep(path)`
 - `connect(path)`
-- `next_sequence(name)`
+- `next_seq(name)`
 
 Datastore receives:
 
@@ -50,10 +50,10 @@ Datastore outputs:
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
 | `init_server()` | Server DB path. | Ready server DB. | Creates `workspace/db/server.db` and server tables if missing. Fails loud on schema errors. |
-| `init_bot(path)` | Bot DB path. | Ready bot DB. | Creates the bot SQLite file and `bot`, `account`, `bot_command`, `bot_event`, `bot_state`, `exchange_meta_snapshot`, `position`, `order`, and `fill` tables if missing. Fails loud on schema errors. |
-| `init_sweep(path)` | Sweep/sweeprun DB path. | Ready sweep DB. | Creates that SQLite file and sweep tables if missing. Fails loud on schema errors. |
+| `init_bot(path)` | Bot DB path. | Ready bot DB. | Creates the bot SQLite file and `bot`, `account`, `command`, `event`, `botstate`, `position`, `order`, `fill`, and `simstate` tables if missing. Fails loud on schema errors. |
+| `init_sweep(path)` | Sweep DB path. | Ready sweep DB. | Creates `sweep`, `sweeprun`, `botrun`, `account`, `event`, `position`, `order`, and `fill` tables if missing. Fails loud on schema errors. |
 | `connect(path)` | SQLite file path. | Short-lived session/connection. | Open, read/write, close. No long-lived server DB connection. |
-| `next_sequence(name)` | Sequence name. | Next integer. | Uses one short SQLite write transaction with `BEGIN IMMEDIATE`. If allocation fails, caller startup fails. |
+| `next_seq(name)` | Sequence name. | Next integer. | Uses one short SQLite write transaction with `BEGIN IMMEDIATE`. If allocation fails, caller startup fails. |
 
 ## processing
 

@@ -25,7 +25,7 @@ runtime.mode = sweep
 
 ```text
 sweep_config = load sweep file
-sweep_id = server DB sequence
+sweep_id = server DB seq
 sweep_db = workspace/db/sweep_<sweep_id>.db
 create sweep DB and tables if missing
 parameter_grid = expand params

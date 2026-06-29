@@ -36,13 +36,59 @@ shape lessons, not for wholesale copying.
 ## route rules
 
 - Keep route handlers tiny.
-- Validate route params, query params, and JSON body shape at the route
-  boundary.
-- If the input is a full template, validate only that a template object exists;
-  pass the template to BotManager/SweepManager specialist validation.
+- Validate only transport-level input at the route boundary:
+  - required path parts are present.
+  - primitive path/query/body fields are the expected basic type.
+  - required strings are not empty.
+  - IDs parse as integers where the route requires integer IDs.
+  - enums use accepted route values.
+- If the input is a full template, validate only that the template value exists
+  and is not empty; pass it to BotManager/SweepManager specialist validation.
 - Call one manager/helper function.
-- Return manager/helper output as JSON.
+- Own API return shape: HTTP status, JSON envelope, and API error shape.
+- Return manager/helper output inside that API shape.
 - Map known validation/domain errors to clear API errors.
+
+API owns:
+
+- route shape.
+- primitive input checks.
+- empty checks.
+- security checks.
+- auth/session/permission checks when they exist.
+- request size limits when needed.
+- content type expectations when needed.
+- API JSON response shape.
+- HTTP status code selection.
+
+API does not own:
+
+- template parsing.
+- strategy validation.
+- DB creation logic.
+- seq allocation.
+- bot/sweep business rules.
+- HTML page shape, toast shape, or redirect behavior; WebGUI owns those.
+
+Route validation examples:
+
+```text
+/bot/run/mainnet/1A       invalid: bot id is not an integer
+/bot/run/mainnet/         invalid: bot id missing
+/bot/run/unknown/1        invalid: network not accepted by that route
+POST /api/sweeps <empty>  invalid: template missing
+```
+
+Specialist validation examples:
+
+```text
+SweepManager.create_sweep(template)
+  parses TOML
+  validates sweep template shape
+  allocates seq
+  creates sweep DB
+  writes sweep row
+```
 
 ## route non-goals
 

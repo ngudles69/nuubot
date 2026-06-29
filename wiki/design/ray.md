@@ -100,13 +100,13 @@ Per-bot DB tables start with:
 ```text
 bot
 account
-bot_command
-bot_event
-bot_state
-exchange_meta_snapshot
+command
+event
+botstate
 position
 order
 fill
+simstate
 ```
 
 Do not add `bot_id` to every per-bot table. The SQLite file name and server
@@ -120,11 +120,11 @@ Manual mode has no actor handle, so it uses the bot-local DB:
 
 ```text
 operator/CLI/API opens workspace/db/<exec_network>_bot_<bot_id>.db
-insert bot_command
+insert command
 close
 
-BotRuntime polls bot_command during its loop
-BotRuntime writes bot_event, bot_state, and heartbeat
+BotRuntime polls command during its loop
+BotRuntime writes event, botstate, and heartbeat
 ```
 
 There is no shared command table and no Redis command bus.
@@ -161,9 +161,9 @@ The server DB is the only persistent shared DB.
 
 It owns:
 
-- `server_sequence`.
-- `server_state`.
-- exchange meta.
+- `seq`.
+- `state`.
+- `meta`.
 
 Access rule:
 

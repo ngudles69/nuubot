@@ -16,7 +16,7 @@ CommandServer lives in `command.py`.
 It is the runtime-side command owner inside BotRuntime.
 
 Ray mode uses Ray actor calls as the first command path. Manual/notebook mode
-has no actor handle, so CommandServer polls the bot-local `bot_command` table.
+has no actor handle, so CommandServer polls the bot-local `command` table.
 Both modes write bot-local events, state, and heartbeat.
 
 It is not an aiohttp server.
@@ -46,7 +46,7 @@ External commands:
 | `start()` | Initialized CommandServer. | Running CommandServer. | Starts command/heartbeat state. Does not execute commands until Runtime enters normal flow. |
 | `stop()` | Running CommandServer. | Stopped CommandServer. | Writes stopped/terminal ownership state where `bot_id` and `run_token` match. |
 | `heartbeat()` | Current runtime ownership. | Updated bot row. | Updates `last_seen_at` only where `bot_id` and `run_token` match. |
-| `next_command()` | Runtime command state. | Pending command or none. | In Ray mode, returns actor-delivered command. In manual mode, polls the bot-local `bot_command` table. |
+| `next_command()` | Runtime command state. | Pending command or none. | In Ray mode, returns actor-delivered command. In manual mode, polls the bot-local `command` table. |
 | `execute(command)` | Runtime command. | Command result. | Executes supported runtime command and writes done/error audit when needed. |
 
 Supported runtime commands first:
@@ -94,7 +94,7 @@ Internal functions:
 - Ray actor state plus heartbeat freshness are liveness evidence in managed
   mode.
 - Manual mode liveness is bot-local heartbeat freshness.
-- `bot_command`, `bot_event`, and `bot_state` are bot-local tables, never shared
+- `command`, `event`, and `botstate` are bot-local tables, never shared
   server DB tables.
 - No Redis.
 - No aiohttp or port table for runtime commands.

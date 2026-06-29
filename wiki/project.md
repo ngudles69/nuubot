@@ -36,7 +36,7 @@ easy to understand, easy to run, and hard to overcomplicate.
 - Avoid hidden fallback behavior.
 - Use references for patterns, not wholesale copying.
 - Use SQLite for runtime state: one DB file per bot/sweep/sweeprun instance,
-  plus one persistent server DB for sequence numbers, server state, and
+  plus one persistent server DB for seq numbers, server state, and
   exchange meta.
 - Code/test bots through notebooks using direct BotRuntime.
 - Use Ray as the live managed process layer: bots are stateful actor wrappers

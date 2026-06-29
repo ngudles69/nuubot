@@ -53,7 +53,7 @@ Internal functions:
 - load workspace config.
 - create the persistent server SQLite DB if missing.
 - create server tables if missing.
-- if `exchange_meta` is missing or older than 24 hours, fetch all Hyperliquid
+- if `meta` is missing or older than 24 hours, fetch all Hyperliquid
   meta using adapted `nuutrader6` logic and write it to the server DB.
 - derive runtime-facing networks from config mode.
 - expose infra handles.

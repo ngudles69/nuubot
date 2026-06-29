@@ -33,7 +33,7 @@ bot = bot_setup(exec_network=simnet, bot_id=bot_id)
 
 data = WsData(bot.config)
 clock = Clock(mode=simnet, data=data, loop_seconds=loop_seconds)
-account = Account(nuubot, account_id, exec_network=simulator)
+account = Account(nuubot, acct_id, exec_network=simulator)
 executor = Executor(nuubot, bot_id, account)
 signaler = Signaler(bot.config)
 command = CommandServer(nuubot, bot_id, callbacks)

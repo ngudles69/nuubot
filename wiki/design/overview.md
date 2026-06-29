@@ -16,16 +16,16 @@ tags: [design, overview]
    telemetry.
 3. [State](state.md): SQLite state, bot state, exchange meta,
    reconciliation.
-4. [Server](server.md): Server, managers, CLI helper, Ray
-   ownership.
+4. [Server](server.md): Server, WebGUI, managers, CLI helper, Ray ownership.
 5. [Server DB](server-db.md): Server DB ownership and access rules.
 6. [BotManager](botmanager.md): bot control-plane ownership.
 7. [SweepManager](sweepmanager.md): sweep control-plane ownership.
 8. [Server API](server-api.md): route rules and route-list reference.
-9. [DataEngines](dataengines.md): optional shared websocket/feed engines.
-10. [Ray](ray.md): Ray actor/task process model.
-11. [Strategy](strategy.md): risk, signalers, executors.
-12. [Sweeps](sweeps.md): sweep, sweeprun, bot config, parameter shape.
+9. [WebGUI](webgui.md): FastHTML operator UI.
+10. [DataEngines](dataengines.md): optional shared websocket/feed engines.
+11. [Ray](ray.md): Ray actor/task process model.
+12. [Strategy](strategy.md): risk, signalers, executors.
+13. [Sweeps](sweeps.md): sweep, sweeprun, bot config, parameter shape.
 
 ## problem
 
@@ -44,9 +44,11 @@ without recreating the over-built shape of `nuutrader6`.
 - Keep datastore infrastructure separate from domain persistence operations.
 - Keep each running bot/sweep/sweeprun as a standalone unit with its own SQLite
   file.
-- Keep one persistent server SQLite DB for sequence numbers, server state, and
+- Keep one persistent server SQLite DB for seq numbers, server state, and
   exchange meta.
 - Keep Server as the admin/API/control process that owns managers.
+- Keep FastHTML WebGUI inside Server as the operator display and command
+  surface.
 - Keep BotRuntime runnable directly from notebooks without Ray.
 - Use Ray as the live managed process layer for bot actors and sweep tasks.
 - Keep live bot websocket/feed clients bot-local first.
@@ -57,8 +59,11 @@ without recreating the over-built shape of `nuutrader6`.
 - Code/test bots through notebooks using direct BotRuntime.
 - Run live managed bots through Server/BotManager using Ray actor launch.
 - Run a sweep through Server/SweepManager using Ray task launch.
+- Start Server and WebGUI with `uv run python -m nuubot.server`.
 - CLI is a thin operator helper over the same manager/helper functions used by
   API routes.
+- Use FastHTML for the WebGUI. Keep it in `nuubot/webgui/**`, not as a peer
+  package.
 - Use TOML for `<paramfile>`.
 - Treat credentials as part of config for now.
 - Persist config snapshots with credentials redacted or omitted.
@@ -128,10 +133,11 @@ without recreating the over-built shape of `nuutrader6`.
 | `Ledger` | [objects/ledger.md](objects/ledger.md) | Position, order, fill collection. |
 | `Datastore` | [objects/datastore.md](objects/datastore.md) | SQLite boundary. |
 | `Server` | [server.md](server.md) | Parent/control process and infra owner. |
-| `Server DB` | [server-db.md](server-db.md) | Shared SQLite sequence/meta/server-state DB. |
+| `Server DB` | [server-db.md](server-db.md) | Shared SQLite seq/meta/server-state DB. |
 | `BotManager` | [botmanager.md](botmanager.md) | Bot create/load/start/stop/status owner. |
 | `SweepManager` | [sweepmanager.md](sweepmanager.md) | Sweep create/run/status owner. |
 | `Server API` | [server-api.md](server-api.md) | Thin API route boundary. |
+| `WebGUI` | [webgui.md](webgui.md) | FastHTML display and command-control UI. |
 | `DataEngines` | [dataengines.md](dataengines.md) | Optional shared live feed services. |
 | `Ray` | [ray.md](ray.md) | Actor/task process layer. |
 | `WsData` / `FileData` | [objects/data.md](objects/data.md) | Live websocket data and historical file data. |
@@ -145,7 +151,7 @@ without recreating the over-built shape of `nuutrader6`.
 ```text
 Sweep -> Sweeprun -> Bot config -> Runtime/Bot
 Program entrypoint -> Nuubot -> Config + Server DB
-Server -> nuubot_setup -> BotManager -> Ray bot actor
+Server/WebGUI entrypoint -> nuubot_setup -> BotManager -> Ray bot actor
 Server -> SweepManager -> Ray sweep task
 API route -> Manager/helper function -> result
 Cli -> Manager/helper function -> result
@@ -155,11 +161,11 @@ Notebook -> BotRuntime -> bot SQLite DB
 Runtime/Bot actor -> short server DB check/meta read
 Runtime/Bot actor -> bot_setup -> Bot row + Accounts + Positions + Orders + Fills + State
 Runtime/Bot -> Clock -> ExchangeData snapshot
-Runtime/Bot -> CommandServer -> Ray actor command or bot-local bot_command
+Runtime/Bot -> CommandServer -> Ray actor command or bot-local command
 Runtime/Bot -> Risk -> Signaler -> Executor
 Executor -> Account -> Ledger -> Position -> Order -> Fill
 Runtime/Domain objects -> instance SQLite DB
-Frontend later -> DB file discovery + per-instance SQLite read model
+WebGUI -> DB file discovery + per-instance SQLite read model
 ```
 
 ## connection rule
@@ -187,7 +193,7 @@ CommandServer(nuubot, bot_id, runtime_callbacks)
 
 ## non-goals first
 
-- No frontend implementation.
+- No separate frontend app or JS build system.
 - No runtime-forced risk exit yet.
 - No executor action-request framework.
 - No protocol/base class hierarchy unless real code needs it.

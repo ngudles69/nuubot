@@ -20,18 +20,19 @@ from nuubot.config.models import AppConfig
 from nuubot.core.dtypes import DataNetwork, HyperliquidNetwork
 from nuubot.datastore.schemas import (
     AccountRow,
-    BotCatalogRow,
     BotRow,
-    ExchangeMetaSnapshotRow,
-    ExchangeMetaRow,
+    BotStateRow,
+    BotrunRow,
+    CommandRow,
+    EventRow,
     FillRow,
+    Meta,
     OrderRow,
     PositionRow,
-    ServerSequenceRow,
-    ServerStateRow,
-    SweeprunCatalogRow,
+    ServerSeq,
+    ServerState,
+    SimulatorStateRow,
     SweeprunRow,
-    SweepCatalogRow,
     SweepRow,
 )
 
@@ -69,12 +70,9 @@ class Datastore:
         engine = self._engine(self.server_path)
         try:
             for table in (
-                ServerSequenceRow.__table__,
-                ServerStateRow.__table__,
-                BotCatalogRow.__table__,
-                SweepCatalogRow.__table__,
-                SweeprunCatalogRow.__table__,
-                ExchangeMetaRow.__table__,
+                ServerSeq.__table__,
+                ServerState.__table__,
+                Meta.__table__,
             ):
                 table.create(engine, checkfirst=True)
         finally:
@@ -87,7 +85,10 @@ class Datastore:
             for table in (
                 BotRow.__table__,
                 AccountRow.__table__,
-                ExchangeMetaSnapshotRow.__table__,
+                CommandRow.__table__,
+                EventRow.__table__,
+                BotStateRow.__table__,
+                SimulatorStateRow.__table__,
                 PositionRow.__table__,
                 OrderRow.__table__,
                 FillRow.__table__,
@@ -103,12 +104,18 @@ class Datastore:
             for table in (
                 SweepRow.__table__,
                 SweeprunRow.__table__,
+                BotrunRow.__table__,
+                AccountRow.__table__,
+                EventRow.__table__,
+                PositionRow.__table__,
+                OrderRow.__table__,
+                FillRow.__table__,
             ):
                 table.create(engine, checkfirst=True)
         finally:
             engine.dispose()
 
-    def next_sequence(self, name: str) -> int:
+    def next_seq(self, name: str) -> int:
         engine = self._engine(self.server_path)
         try:
             with engine.connect() as conn:
@@ -116,7 +123,7 @@ class Datastore:
                 try:
                     conn.execute(
                         text(
-                            "INSERT INTO server_sequence (name, value, notes, created_at, updated_at) "
+                            "INSERT INTO seq (name, value, notes, created_at, updated_at) "
                             "VALUES (:name, 0, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
                             "ON CONFLICT(name) DO NOTHING"
                         ),
@@ -124,7 +131,7 @@ class Datastore:
                     )
                     value = conn.execute(
                         text(
-                            "UPDATE server_sequence "
+                            "UPDATE seq "
                             "SET value = value + 1, updated_at = CURRENT_TIMESTAMP "
                             "WHERE name = :name "
                             "RETURNING value"
@@ -161,10 +168,10 @@ class Datastore:
         engine = self._engine(self.server_path)
         try:
             with engine.connect() as conn:
-                count = conn.execute(select(func.count()).select_from(ExchangeMetaRow.__table__)).scalar_one()
+                count = conn.execute(select(func.count()).select_from(Meta.__table__)).scalar_one()
                 if count == 0:
                     return True
-                newest = conn.execute(select(func.max(ExchangeMetaRow.fetched_at))).scalar_one()
+                newest = conn.execute(select(func.max(Meta.fetched_at))).scalar_one()
         finally:
             engine.dispose()
         if newest is None:
@@ -179,7 +186,7 @@ class Datastore:
         try:
             with engine.begin() as conn:
                 for row in rows:
-                    statement = sqlite_insert(ExchangeMetaRow.__table__).values(
+                    statement = sqlite_insert(Meta.__table__).values(
                         symbol=row.symbol,
                         kind=row.kind,
                         asset_id=row.asset_id,
@@ -194,7 +201,7 @@ class Datastore:
                     )
                     conn.execute(
                         statement.on_conflict_do_update(
-                            index_elements=[ExchangeMetaRow.__table__.c.symbol, ExchangeMetaRow.__table__.c.kind],
+                            index_elements=[Meta.__table__.c.symbol, Meta.__table__.c.kind],
                             set_={
                                 "asset_id": statement.excluded.asset_id,
                                 "exchange_index": statement.excluded.exchange_index,

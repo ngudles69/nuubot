@@ -76,4 +76,4 @@ External functions:
   proven insufficient.
 - BotManager replaces `nuutrader6` subprocess spawning with Ray actor starts.
 - BotManager replaces Redis command nudges with Ray actor calls for managed
-  runs and bot-local `bot_command` writes for manual runs.
+  runs and bot-local `command` writes for manual runs.

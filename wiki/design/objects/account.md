@@ -47,7 +47,7 @@ Account receives:
 - exchange meta.
 - order intent from `Executor`.
 - mode-derived execution network.
-- `account_id` from the bot DB `account` row.
+- `acct_id` from the bot DB `account` row.
 
 Account outputs:
 
@@ -56,7 +56,7 @@ Account outputs:
 - exchange order/fill/position evidence.
 - ledger updates.
 - account telemetry.
-- account state persisted under that `account_id`.
+- account state persisted under that `acct_id`.
 
 ## contracts
 
@@ -107,5 +107,5 @@ Internal functions:
 - Executor sends order intent to Account. Executor does not write orders/fills
   directly into Ledger.
 - A bot using two exchange accounts has two `account` rows in the bot DB.
-- Positions belong to an `account_id`; orders belong to a `position_id`; fills
+- Positions belong to an `acct_id`; orders belong to a `position_id`; fills
   belong to an `order_id`.

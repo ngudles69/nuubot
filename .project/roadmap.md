@@ -38,17 +38,17 @@ This file is the project plan.
   - [x] 1.7 Lock bot-local websocket/feed clients first.
   - [x] 1.8 Lock no Redis and no shared websocket server first.
 
-### [o] 2. Datastore schemas
+### [x] 2. Datastore schemas
 
-  - [ ] 2.1 Create server tables: `server_sequence`, `server_state`,
-    `exchange_meta`.
-  - [ ] 2.2 Remove central bot/sweep/sweeprun catalog tables.
-  - [ ] 2.3 Create bot tables: `bot`, `account`, `bot_command`, `bot_event`,
-    `bot_state`, `exchange_meta_snapshot`, `position`, `order`, `fill`.
-  - [ ] 2.4 Create sweep tables: `sweeps`, `sweepruns`.
-  - [ ] 2.5 Remove redundant `bot_id` from per-bot position/order/fill tables.
-  - [ ] 2.6 Add atomic server sequence allocation with `BEGIN IMMEDIATE`.
-  - [ ] 2.7 Prove table creation and sequence allocation with a temp SQLite
+  - [x] 2.1 Create server tables: `seq`, `state`, `meta`.
+  - [x] 2.2 Remove central bot/sweep/sweeprun catalog tables.
+  - [x] 2.3 Create bot tables: `bot`, `account`, `command`, `event`,
+    `botstate`, `position`, `order`, `fill`, `simstate`.
+  - [x] 2.4 Create sweep tables: `sweep`, `sweeprun`, `botrun`, `account`,
+    `event`, `position`, `order`, `fill`.
+  - [x] 2.5 Remove redundant `bot_id` from per-bot position/order/fill tables.
+  - [x] 2.6 Add atomic server seq allocation with `BEGIN IMMEDIATE`.
+  - [x] 2.7 Prove table creation and seq allocation with a temp SQLite
     check.
 
 ### [o] 3. Datastore behavior
@@ -58,7 +58,7 @@ This file is the project plan.
   - [ ] 3.2 Keep server tables separate from bot tables in schema creation.
   - [ ] 3.3 Enforce short open/read-write/close access for `server.db`.
   - [ ] 3.4 Use DB file existence as bot/sweep/sweeprun existence truth.
-  - [ ] 3.5 Add focused tests for server sequence, meta refresh, bot DB table
+  - [ ] 3.5 Add focused tests for server seq, meta refresh, bot DB table
     creation, and file discovery.
 
 ### [o] 4. Nuubot setup
@@ -81,20 +81,23 @@ This file is the project plan.
   - [ ] 5.7 Prove notebooks can pass a loaded template directly and live/sim
     creation can pass a file path.
 
-### [o] 6. Server, managers, Ray, and CLI
+### [o] 6. Server, WebGUI, managers, Ray, and CLI
 
-  - [ ] 6.1 Add Server as the parent/control process.
+  - [x] 6.1 Add Server as the parent/control process.
   - [ ] 6.2 Add BotManager for bot create/load/clone/delete/view/ping/status.
   - [ ] 6.3 Add SweepManager for sweep create/run/view/status.
   - [ ] 6.4 Add Server API routes as thin adapters.
-  - [ ] 6.5 Add `ray` as a project dependency and install with `rtk uv sync`.
-  - [ ] 6.6 Start live managed bot actors through BotManager using Ray.
-  - [ ] 6.7 Submit sweep tasks through SweepManager using Ray.
-  - [ ] 6.8 Keep API/routes tiny: validate input, call one manager/helper,
+  - [x] 6.5 Add FastHTML WebGUI under `nuubot/webgui/**`.
+  - [x] 6.6 Start WebGUI with `uv run python -m nuubot.server`.
+  - [x] 6.7 Add repo-root `server.cmd` and `server.sh` helpers.
+  - [ ] 6.8 Add `ray` as a project dependency and install with `rtk uv sync`.
+  - [ ] 6.9 Start live managed bot actors through BotManager using Ray.
+  - [ ] 6.10 Submit sweep tasks through SweepManager using Ray.
+  - [ ] 6.11 Keep API/routes tiny: validate input, call one manager/helper,
     return result.
-  - [ ] 6.9 Keep CLI as a thin operator helper over the same manager/helper
+  - [ ] 6.12 Keep CLI as a thin operator helper over the same manager/helper
     functions.
-  - [ ] 6.10 Prove one local Ray bot actor creates one bot DB and returns status.
+  - [ ] 6.13 Prove one local Ray bot actor creates one bot DB and returns status.
 
 ### [o] 7. Bot-local data feeds
 
@@ -113,7 +116,7 @@ This file is the project plan.
   - [ ] 8.4 Runtime setup calls `bot_setup()` once.
   - [ ] 8.5 Runtime composes signaler, risk, executor, data, and clock after
     bot state is loaded.
-  - [ ] 8.6 Add bot-local `bot_command`, `bot_event`, and `bot_state` handling.
+  - [ ] 8.6 Add bot-local `command`, `event`, and `botstate` handling.
   - [ ] 8.7 Add lifecycle commands: start, stop, freeze/exit, status.
   - [ ] 8.8 Prove direct notebook runtime and Ray actor runtime share the same
     BotRuntime path.

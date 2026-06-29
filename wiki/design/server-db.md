@@ -20,9 +20,9 @@ operations.
 
 Server DB owns:
 
-- `server_sequence`
-- `server_state`
-- `exchange_meta`
+- `seq`
+- `state`
+- `meta`
 
 Server DB does not own bot/sweep/sweeprun catalogs.
 
@@ -54,9 +54,9 @@ Server setup owns exchange meta refresh.
 nuubot_setup()
   create server.db if missing
   create server tables if missing
-  if exchange_meta missing or older than 24h:
+  if meta missing or older than 24h:
     fetch all meta
-    write exchange_meta
+    write meta
 ```
 
 Bot setup reads meta once:
@@ -64,7 +64,7 @@ Bot setup reads meta once:
 ```text
 bot_setup()
   open server.db
-  read required exchange_meta
+  read required meta
   close server.db
   write needed meta snapshot to bot.db
 ```

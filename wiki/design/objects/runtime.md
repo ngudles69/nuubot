@@ -471,7 +471,7 @@ Bot rule:
 `CommandServer` lives in `command.py`.
 
 It is runtime-local. Ray actor calls are the first command path in managed
-mode. Manual/notebook mode polls the bot-local `bot_command` table.
+mode. Manual/notebook mode polls the bot-local `command` table.
 Command rows are bot DB audit/control rows, not a process manager.
 It is not aiohttp and it does not own a port.
 
@@ -505,7 +505,7 @@ This prevents stale actor runs from overwriting newer runs.
 Optional command audit table:
 
 ```text
-bot_command
+command
 command_id
 command
 payload_json
@@ -520,8 +520,8 @@ error
 Bot-local state/event tables:
 
 ```text
-bot_state
-bot_event
+botstate
+event
 ```
 
 Supported commands first:
@@ -561,5 +561,5 @@ Status is in memory for the running process:
 
 - Runtime writes heartbeat through `CommandServer`.
 - BotManager checks Ray actor state and heartbeat freshness for managed runs.
-- Manual runs expose status through bot-local `bot_state`, `bot_event`, and
+- Manual runs expose status through bot-local `botstate`, `event`, and
   heartbeat freshness.

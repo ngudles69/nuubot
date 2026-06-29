@@ -27,14 +27,14 @@ Account uses real exchange execution.
 ```text
 Notebook/manual coding path may instantiate BotRuntime directly.
 Live managed path uses Server/BotManager and Ray.
-bot_id = server DB sequence for <mainnet_or_testnet>_bot
+bot_id = server DB seq for <mainnet_or_testnet>_bot
 bot_db = workspace/db/<mainnet_or_testnet>_bot_<bot_id>.db
 start BotRuntime directly or through Ray actor with exec_network, bot_id
 bot = bot_setup(exec_network=<mainnet_or_testnet>, bot_id=bot_id)
 
 data = WsData(bot.config)
 clock = Clock(mode=mainnet_or_testnet, data=data, loop_seconds=loop_seconds)
-account = Account(nuubot, account_id, exec_network=mainnet_or_testnet)
+account = Account(nuubot, acct_id, exec_network=mainnet_or_testnet)
 executor = Executor(nuubot, bot_id, account)
 signaler = Signaler(bot.config)
 command = CommandServer(nuubot, bot_id, callbacks)

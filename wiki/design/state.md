@@ -15,7 +15,7 @@ SQLite is the datastore target.
 
 DB files:
 
-- one persistent server DB for sequence numbers, server state, and exchange
+- one persistent server DB for seq numbers, server state, and exchange
   meta.
 - one SQLite DB file per running bot instance.
 - one SQLite DB file per sweep.
@@ -74,19 +74,19 @@ Persist these tables first:
 
 - `bot`
 - `account`
-- `bot_command`
-- `bot_event`
-- `bot_state`
-- `exchange_meta_snapshot`
+- `command`
+- `event`
+- `botstate`
 - `position`
 - `order`
 - `fill`
+- `simstate`
 
 Server DB tables first:
 
-- `server_sequence`
-- `server_state`
-- exchange_meta
+- `seq`
+- `state`
+- `meta`
 
 State ownership:
 
@@ -138,11 +138,12 @@ Bot DB shape:
   bot boundary.
 - Do not repeat `network` on every per-bot table. Put execution-network data on
   the `bot` row or `account` row only when needed.
-- `account.account_id` keys accounts. A bot using two accounts has two
+- `account.acct_id` keys accounts. A bot using two accounts has two
   `account` rows.
-- `exchange_meta_snapshot` stores the bot's setup-time copy of required server
-  meta.
-- `position.account_id` links positions to an account.
+- `account.bot_id` is nullable. In a one-bot DB it may be blank because the DB
+  file already owns the bot. In a sweep DB it can link the account to a
+  generated bot.
+- `position.bot_id` and `position.acct_id` link positions to a bot/account.
 - `order.position_id` links orders to a position.
 - `fill.order_id` links fills to an order.
 - `bot.state_json` is the free-form runtime state field until a real query
@@ -158,13 +159,13 @@ Bot DB shape:
   conditions.
 - Track dirty state when cleanup fails.
 
-Server sequence shape:
+Server seq shape:
 
 ```text
-server_sequence(name primary key, value)
+seq(name primary key, value)
 ```
 
-Initial sequence names:
+Initial seq names:
 
 ```text
 mainnet_bot
@@ -179,10 +180,10 @@ Allocation rule:
 
 ```sql
 BEGIN IMMEDIATE;
-INSERT INTO server_sequence (name, value)
+INSERT INTO seq (name, value)
   VALUES (:name, 0)
   ON CONFLICT(name) DO NOTHING;
-UPDATE server_sequence
+UPDATE seq
   SET value = value + 1
   WHERE name = :name
   RETURNING value;
@@ -190,13 +191,13 @@ COMMIT;
 ```
 
 If allocation, server infra check, or DB setup fails, startup fails loud. The
-operator restarts. Do not add fallback IDs or a custom sequence recovery layer.
+operator restarts. Do not add fallback IDs or a custom seq recovery layer.
 
 Command state:
 
 - Ray actor calls are the first command path in managed mode.
-- Manual/notebook mode polls the bot-local `bot_command` table.
-- `bot_command`, `bot_event`, and `bot_state` are local bot DB tables.
+- Manual/notebook mode polls the bot-local `command` table.
+- `command`, `event`, and `botstate` are local bot DB tables.
 - There is no shared command table.
 - No Redis and no aiohttp.
 
@@ -207,12 +208,12 @@ Exchange meta is global exchange reference data.
 Policy on bot start:
 
 ```text
-if exchange_meta has rows for venue fetched within the last 24 hours:
+if meta has rows for venue fetched within the last 24 hours:
   use stored meta
 else:
   fetch all exchange meta from the exchange
-  upsert all exchange_meta rows
-load requested symbol from exchange_meta
+  upsert all meta rows
+load requested symbol from meta
 if symbol is missing:
   fail loud
 ```
@@ -221,7 +222,7 @@ Rules:
 
 - Fetch all meta, not one symbol.
 - Do not keep fetching within the 24 hour freshness window.
-- Use `upsert` for `exchange_meta`; it is reference data, not trading evidence.
+- Use `upsert` for `meta`; it is reference data, not trading evidence.
 - No background refresh.
 - Server DB owns exchange meta.
 - If server DB setup fails, startup fails loud.
@@ -306,7 +307,7 @@ Examples:
 
 Frontend is a separate scope from bot runtime. It discovers DB files and reads
 per-instance SQLite read models. Commands go through Ray actor calls for managed
-runs or the bot-local `bot_command` table for manual runs.
+runs or the bot-local `command` table for manual runs.
 
 Frontend server responsibilities later:
 

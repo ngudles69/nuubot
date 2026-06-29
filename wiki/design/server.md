@@ -4,16 +4,16 @@ created: 2026-06-29
 updated: 2026-06-29
 type: wiki
 status: active
-tags: [design, server, managers, ray, data]
+tags: [design, server, webgui, managers, ray, data]
 ---
 
 # server design
 
 ## purpose
 
-Server is the admin/API/control process.
+Server is the admin/API/WebGUI/control process.
 
-It owns API routes, managers, server DB setup, and operator-facing
+It owns API routes, WebGUI routes, managers, server DB setup, and operator-facing
 coordination. It uses Ray to run managed bot actors and sweep tasks.
 
 Ray is not the Server. Ray is the worker/process substrate under Server.
@@ -22,6 +22,7 @@ Ray is not the Server. Ray is the worker/process substrate under Server.
 
 ```text
 Server process
+  WebGUI
   API routes
   BotManager
   SweepManager
@@ -43,6 +44,12 @@ Notebook/manual mode
 
 Server owns:
 
+- `uv run python -m nuubot.server` as the normal operator entrypoint.
+- repo-root `server.cmd` and `server.sh` helpers.
+- FastHTML WebGUI under `nuubot/webgui/**`; see [WebGUI](webgui.md).
+- Server package shape starts with `__main__.py`, `server.py`, `api.py`, and
+  `webgui.py`; add `botmgr.py` and `sweepmgr.py` only when those files contain
+  real code.
 - API route registration and request validation.
 - `nuubot_setup()` and shared setup/control-plane initialization.
 - `server.db`; see [Server DB](server-db.md).
@@ -81,7 +88,7 @@ execution logic, runtime logic, websocket infra, or API business behavior.
 
 See [Server API](server-api.md).
 
-API/routes are thin adapters:
+API routes are thin adapters:
 
 ```text
 route validates input
@@ -91,6 +98,9 @@ route returns the result
 
 Do not let route files become display builders, business logic collectors, or
 script dumps.
+
+WebGUI routes are display and command-control routes. They may build HTML, but
+they must call Server/BotManager/SweepManager for app behavior.
 
 ## Ray rule
 

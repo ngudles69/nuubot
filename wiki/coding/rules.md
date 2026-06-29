@@ -56,6 +56,8 @@ Write simple, clear code.
 - Add no Postgres path, migration layer, or DB compatibility bridge unless the
   user explicitly reverses the SQLite direction.
 - Add no property or computed field unless current code 100% needs it.
+- Get user approval and document abbreviations in `wiki/abbreviations.md`
+  before using them.
 - Remove unused helpers and dead stubs.
 - Comments explain intent, not mechanics.
 - Comment code in short intent blocks before lifecycle actions.

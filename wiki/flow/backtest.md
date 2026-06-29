@@ -29,14 +29,14 @@ create timer events.
 ```text
 Notebook/manual coding path may instantiate BotRuntime directly.
 Managed backtest path uses Server/BotManager and Ray.
-bot_id = server DB sequence for backtest_bot
+bot_id = server DB seq for backtest_bot
 bot_db = workspace/db/backtest_bot_<bot_id>.db
 start BotRuntime directly or through Ray actor with exec_network, bot_id
 bot = bot_setup(exec_network=simnet, bot_id=bot_id)
 
 data = FileData(bot.config)
 clock = Clock(mode=backtest, data=data, loop_seconds=loop_seconds)
-account = Account(nuubot, account_id, exec_network=simulator)
+account = Account(nuubot, acct_id, exec_network=simulator)
 executor = Executor(nuubot, bot_id, account)
 signaler = Signaler(bot.config)
 command = CommandServer(nuubot, bot_id, callbacks)
