@@ -19,7 +19,7 @@ not implement sweep behavior themselves.
 ## owns
 
 - sweep create/load/view/status.
-- sweeprun task submission through Ray.
+- sweeprun task submission through `ProcessPoolExecutor`.
 - sweep artifact DB creation.
 - sweep DB file discovery.
 - result collection and summary reads.
@@ -52,7 +52,7 @@ External functions:
 | --- | --- | --- | --- |
 | `create_sweep_via_file(path)` | Sweep template path. | Sweep id and DB path. | Loads file, then calls `create_sweep_via_template(template)`. |
 | `create_sweep_via_template(template)` | Loaded sweep template. | Sweep id and DB path. | Validates through sweep/template code, allocates sequence, creates sweep DB, and writes sweep rows. |
-| `run_sweep(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless Ray tasks. |
+| `run_sweep(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless process-pool tasks. |
 | `stop_sweep(sweep_id)` | Running sweep id. | Stop accepted/result. | Stops/cancels outstanding sweep work where supported. |
 | `load_sweep(sweep_id)` | Sweep id. | Sweep row plus DB path. | Reads the sweep DB. |
 | `list_sweeps()` | None. | Sweep DB paths/rows. | Discovers `workspace/db/sweep_*.db`. |
@@ -74,7 +74,7 @@ External functions:
 - Sweep existence is the sweep DB file.
 - Do not add central sweep/sweeprun catalog tables unless file discovery is
   measured and proven insufficient.
-- Ray is execution. SQLite is truth.
+- Process pool is execution. SQLite is truth.
 
 Run flow:
 
@@ -87,10 +87,12 @@ run_sweep(sweep_id)
   create sweeprun rows
   create botrun rows
   set sweep.status = running
-  submit Ray sweeprun tasks, max 8 local CPUs
+  submit sweeprun tasks to the server-owned process pool
+  finalize sweep row when all sweepruns finish
+  join finalizer threads during server shutdown
 ```
 
-Each Ray sweeprun task receives:
+Each sweeprun task receives:
 
 ```text
 sweep_id

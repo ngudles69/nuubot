@@ -80,9 +80,9 @@ nuubot-cli ping <bot_id>
 
 ## notes
 
-- CLI must not own datastore logic, bot creation logic, Ray lifecycle logic,
+- CLI must not own datastore logic, bot creation logic, worker lifecycle logic,
   sweep execution logic, runtime logic, or API business behavior.
 - CLI is not a giant collector of scripts.
-- Runtime CommandServer manages commands inside one Ray bot actor.
+- Runtime CommandServer manages commands inside one bot runtime.
 - No freeze implementation until approved later.
 - Keep command names boring and direct.

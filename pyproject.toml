@@ -6,7 +6,6 @@ dependencies = [
   "monsterui>=1.0.46",
   "pydantic>=2",
   "python-fasthtml>=0.14.4",
-  "ray>=2.55.1",
   "sqlalchemy>=2",
   "websockets>=15.0.1",
 ]

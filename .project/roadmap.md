@@ -32,9 +32,9 @@ This file is the project plan.
   - [x] 1.1 Lock SQLite-only datastore.
   - [x] 1.2 Lock one bot runtime to one bot SQLite DB.
   - [x] 1.3 Lock BotRuntime as plain Python runnable without Ray.
-  - [x] 1.4 Lock Ray as optional live managed process layer.
+  - [x] 1.4 Replace Ray with stdlib process pools for sweeps.
   - [x] 1.5 Lock notebooks as the code/test path.
-  - [x] 1.6 Lock Server + Ray as the live run path.
+  - [x] 1.6 Lock Server + managers as the live run path.
   - [x] 1.7 Lock bot-local websocket/feed clients first.
   - [x] 1.8 Lock no Redis and no shared websocket server first.
 
@@ -81,7 +81,7 @@ This file is the project plan.
   - [ ] 5.7 Prove notebooks can pass a loaded template directly and live/sim
     creation can pass a file path.
 
-### [o] 6. Server, WebGUI, managers, Ray, and CLI
+### [o] 6. Server, WebGUI, managers, workers, and CLI
 
   - [x] 6.1 Add Server as the parent/control process.
   - [ ] 6.2 Add BotManager for bot create/load/clone/delete/view/ping/status.
@@ -91,14 +91,14 @@ This file is the project plan.
   - [x] 6.6 Start WebGUI with `uv run python -m nuubot.server`.
   - [x] 6.7 Add repo-root `server.cmd` and `server.sh` helpers.
   - [x] 6.8 Add sweep create/list WebGUI pages and `/api/sweeps` routes.
-  - [x] 6.9 Add `ray` as a project dependency and install with `rtk uv sync`.
-  - [ ] 6.10 Start live managed bot actors through BotManager using Ray.
-  - [x] 6.11 Submit sweep tasks through SweepManager using Ray.
+  - [x] 6.9 Remove Ray from the active runtime path.
+  - [ ] 6.10 Start live managed bots through BotManager when lifecycle code needs it.
+  - [x] 6.11 Submit sweep tasks through SweepManager using `ProcessPoolExecutor`.
   - [ ] 6.12 Keep API/routes tiny: validate input, call one manager/helper,
     return result.
   - [ ] 6.13 Keep CLI as a thin operator helper over the same manager/helper
     functions.
-  - [ ] 6.14 Prove one local Ray bot actor creates one bot DB and returns status.
+  - [ ] 6.14 Prove one managed bot process creates one bot DB and returns status.
 
 ### [o] 7. Bot-local data feeds
 
@@ -111,7 +111,7 @@ This file is the project plan.
 ### [o] 8. Bot runtime and lifecycle
 
   - [ ] 8.1 Add plain Python `BotRuntime(exec_network, bot_id)`.
-  - [ ] 8.2 Make notebooks run BotRuntime directly without Ray.
+  - [ ] 8.2 Make notebooks run BotRuntime directly.
   - [ ] 8.3 Runtime setup checks server infra/meta once and fails loud if
     unavailable.
   - [ ] 8.4 Runtime setup calls `bot_setup()` once.
@@ -119,13 +119,13 @@ This file is the project plan.
     bot state is loaded.
   - [ ] 8.6 Add bot-local `command`, `event`, and `botstate` handling.
   - [ ] 8.7 Add lifecycle commands: start, stop, freeze/exit, status.
-  - [ ] 8.8 Prove direct notebook runtime and Ray actor runtime share the same
+  - [ ] 8.8 Prove direct notebook runtime and managed bot runtime share the same
     BotRuntime path.
 
 ### [o] 9. Sweep
 
   - [x] 9.1 Implement a basic EMA-cross data/indicator sweep loop.
   - [ ] 9.2 Use EMA-cross sweep as the template for future sweeps.
-  - [x] 9.3 Prove sweep runs through SweepManager and Ray task path.
+  - [x] 9.3 Prove sweep runs through SweepManager and process-pool task path.
 
 ## project / tooling

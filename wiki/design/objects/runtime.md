@@ -14,8 +14,8 @@ tags: [design, runtime, bot]
 Runtime is the master composer. It owns the visible bot sequence and calls only
 the objects it composes.
 
-Runtime is plain Python and must run without Ray. In managed live runs, a thin
-Ray actor wraps Runtime.
+Runtime is plain Python and must run without a process manager. Managed live
+runs start the same Runtime path.
 
 Runtime should read close to `BlackBot.py`: direct setup, direct loop, direct
 calls into owned objects. Every runtime line or connection should map to one
@@ -50,7 +50,7 @@ External commands:
 
 Runtime receives:
 
-- `exec_network` and `bot_id` from manual/notebook code or the Ray actor
+- `exec_network` and `bot_id` from manual/notebook code or managed process
   entrypoint.
 - server infra through short `server.db` reads when needed.
 - bot state from `bot_setup(exec_network, bot_id)`.
@@ -81,8 +81,8 @@ Runtime outputs:
 
 Internal functions:
 
-- receive exec network and bot id from notebook/manual code or BotManager/Ray.
-- load/create actor-owned bot state through `bot_setup`.
+- receive exec network and bot id from notebook/manual code or BotManager.
+- load/create bot state through `bot_setup`.
 - initialize command server.
 - compose owned objects.
 - initialize owned objects.
@@ -239,8 +239,7 @@ Implementation gaps:
 - rename `loop_once` to `next`.
 - route live and backtest through `clock.run(Runtime.next)`.
 - move backtest replay driving into Clock.
-- wire Ray actor command calls and bot-local DB command polling into
-  CommandServer.
+- wire bot-local DB command polling into CommandServer.
 - add mandatory reconcile before every non-kill operation.
 - add started/flat/closing state handling through Executor.
 - add order-exit handling, new-order submission, and DB status writes through
@@ -271,8 +270,8 @@ data and execution networks are derived from it:
 describes where execution goes. They are derived properties, not authored
 config fields. `mode` drives them and prevents invalid combinations.
 
-Sweep is a bot runtime mode for sweep-generated bot configs. Fast sweep runs as Ray
-tasks and may still use its own tight execution shell for speed.
+Sweep is a bot runtime mode for sweep-generated bot configs. Fast sweep runs as
+process-pool tasks and may still use its own tight execution shell for speed.
 
 `bar` means candle.
 
@@ -470,8 +469,8 @@ Bot rule:
 
 `CommandServer` lives in `command.py`.
 
-It is runtime-local. Ray actor calls are the first command path in managed
-mode. Manual/notebook mode polls the bot-local `command` table.
+It is runtime-local. Managed and manual modes poll the bot-local `command`
+table.
 Command rows are bot DB audit/control rows, not a process manager.
 It is not aiohttp and it does not own a port.
 
@@ -500,7 +499,7 @@ Runtime updates the local `bot` row only with matching ownership:
 where run_token = current run token
 ```
 
-This prevents stale actor runs from overwriting newer runs.
+This prevents stale runtime processes from overwriting newer runs.
 
 Optional command audit table:
 
@@ -560,6 +559,6 @@ Telemetry is for quick validation, not a large metrics system.
 Status is in memory for the running process:
 
 - Runtime writes heartbeat through `CommandServer`.
-- BotManager checks Ray actor state and heartbeat freshness for managed runs.
+- BotManager checks heartbeat freshness for managed runs.
 - Manual runs expose status through bot-local `botstate`, `event`, and
   heartbeat freshness.

@@ -20,7 +20,7 @@ implement bot behavior themselves.
 
 - bot DB create/load/clone/delete/view/ping/status.
 - bot template creation from file or loaded template.
-- bot actor start/stop/freeze/status through Ray.
+- managed bot start/stop/freeze/status when lifecycle code exists.
 - bot lifecycle validation before manager actions.
 - bot DB file discovery.
 
@@ -60,11 +60,11 @@ External functions:
 | `load_bot(bot_id)` | Bot id. | Bot row plus DB path. | Reads the bot DB. Does not start a bot. |
 | `list_bots()` | None. | Bot DB paths/rows. | Discovers `workspace/db/*_bot_*.db`. |
 | `view_bot(bot_id)` | Bot id. | Operator view. | Reads the bot DB read model. |
-| `start_bot(bot_id)` | Configured bot id. | Ray actor handle/status. | Starts one Ray bot actor with `exec_network` and `bot_id`. |
-| `stop_bot(bot_id)` | Running bot id. | Stop accepted/result. | Calls Ray actor command path. |
-| `freeze_bot(bot_id)` | Running bot id. | Freeze accepted/result. | Calls Ray actor command path. Deferred until lifecycle command exists. |
-| `ping_bot(bot_id)` | Bot id. | Liveness result. | Checks Ray actor evidence and heartbeat freshness. |
-| `status_bot(bot_id)` | Bot id. | Status result. | Combines DB file existence, Ray actor state, heartbeat, and bot DB status. |
+| `start_bot(bot_id)` | Configured bot id. | Managed process/status. | Starts one managed bot runtime with `exec_network` and `bot_id` when lifecycle code exists. |
+| `stop_bot(bot_id)` | Running bot id. | Stop accepted/result. | Sends the managed bot command through the bot-local command path. |
+| `freeze_bot(bot_id)` | Running bot id. | Freeze accepted/result. | Sends the managed bot command through the bot-local command path. Deferred until lifecycle command exists. |
+| `ping_bot(bot_id)` | Bot id. | Liveness result. | Checks heartbeat freshness. |
+| `status_bot(bot_id)` | Bot id. | Status result. | Combines DB file existence, heartbeat, and bot DB status. |
 
 ## notes
 
@@ -74,6 +74,6 @@ External functions:
 - Bot existence is the bot DB file.
 - Do not add a central bot catalog table unless file discovery is measured and
   proven insufficient.
-- BotManager replaces `nuutrader6` subprocess spawning with Ray actor starts.
-- BotManager replaces Redis command nudges with Ray actor calls for managed
-  runs and bot-local `command` writes for manual runs.
+- BotManager keeps managed process control simple until lifecycle code proves
+  it needs more.
+- BotManager replaces Redis command nudges with bot-local `command` writes.

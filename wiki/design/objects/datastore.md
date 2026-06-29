@@ -21,8 +21,8 @@ SQLite is canonical. Do not add Postgres, migration, or dual-engine paths.
 There are two DB kinds:
 
 - server DB: persistent shared DB created by `nuubot_setup()`.
-- instance DB: local per-bot, per-sweep, or per-sweeprun DB created by the Ray
-  actor/task init.
+- instance DB: local per-bot, per-sweep, or per-sweeprun DB created by the
+  runtime/task init.
 
 ## interfaces
 

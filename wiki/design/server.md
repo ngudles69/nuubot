@@ -4,7 +4,7 @@ created: 2026-06-29
 updated: 2026-06-29
 type: wiki
 status: active
-tags: [design, server, webgui, managers, ray, data]
+tags: [design, server, webgui, managers, workers, data]
 ---
 
 # server design
@@ -13,10 +13,10 @@ tags: [design, server, webgui, managers, ray, data]
 
 Server is the admin/API/WebGUI/control process.
 
-It owns API routes, WebGUI routes, managers, server DB setup, Ray startup, Ray
-shutdown, and operator-facing coordination.
+It owns API routes, WebGUI routes, managers, server DB setup, and
+operator-facing coordination.
 
-Ray is not the Server. Ray is the worker/process substrate under Server.
+Server is not a worker process. Workers sit behind the managers.
 
 ## shape
 
@@ -27,11 +27,10 @@ Server process
   BotManager
   SweepManager
   Nuubot shared setup
-  Ray client/use
+  ProcessPoolExecutor for sweeps
 
-Ray runtime
-  bot actors wrapping BotRuntime
-  sweep tasks
+SweepManager
+  submits sweeprun tasks to Server pool
 
 CLI
   thin operator helper
@@ -56,7 +55,7 @@ Server owns:
 - `BotManager`.
 - `SweepManager`.
 - Server lifecycle: start, stop, status, health.
-- Ray startup/shutdown from the control side.
+- SweepManager worker-pool shutdown from the control side.
 
 Server does not own bot trading logic or bot websocket feeds.
 
@@ -71,7 +70,7 @@ SweepManager owns:
 Runtime owns:
 
 - one bot loop in plain Python.
-- bot setup sequence after manual start or Ray actor start.
+- bot setup sequence after manual or managed start.
 - signaler/risk/executor/account/data/clock composition for that bot.
 - bot-local websocket/feed clients for live modes.
 
@@ -81,7 +80,7 @@ CLI owns only:
 - calling Server/BotManager/SweepManager helper functions.
 - printing results.
 
-CLI must not own datastore logic, Ray lifecycle, bot creation logic, sweep
+CLI must not own datastore logic, worker lifecycle, bot creation logic, sweep
 execution logic, runtime logic, websocket infra, or API business behavior.
 
 ## API rule
@@ -102,20 +101,20 @@ script dumps.
 WebGUI routes are display and command-control routes. They may build HTML, but
 they must call Server/BotManager/SweepManager for app behavior.
 
-## Ray rule
+## worker rule
 
-Ray owns bot and sweep workers only.
+Sweep workers use `ProcessPoolExecutor`.
 
 ```text
-Server -> BotManager -> Ray bot actor
-Server -> SweepManager -> Ray sweep task
+Server -> SweepManager -> ProcessPoolExecutor sweeprun task
 ```
 
-Do not make Server a Ray actor first.
+Do not make Server a worker process.
 
-BotRuntime must also run without Ray for notebook coding/testing.
+BotRuntime must run directly for notebook coding/testing.
 
-Live managed runs use Server and Ray.
+Live bot process management is deferred until BotManager needs it. Prefer
+plain subprocesses before adding a worker framework.
 
 ## log rule
 
@@ -126,8 +125,6 @@ Startup:
 ```text
 INFO:     Server startup in progress.
 INFO:     Started server process [...]
-INFO:     Ray startup in progress.
-INFO:     Ray startup complete.
 INFO:     Server startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:5001 (Press CTRL+C to quit)
 ```
@@ -136,8 +133,6 @@ Shutdown:
 
 ```text
 INFO:     Server shutdown in progress.
-INFO:     Ray shutdown in progress.
-INFO:     Ray shutdown complete.
 INFO:     Server shutdown complete.
 INFO:     Finished server process [...]
 ```
@@ -160,8 +155,8 @@ Server owns BotManager, SweepManager, and DataEngine.
 
 Improve it here:
 
-- replace subprocess bot spawning with Ray actors.
-- replace Redis command nudges with Ray actor calls.
+- keep managed bot process control simple until real lifecycle code needs it.
+- avoid Redis command nudges.
 - keep API routes thin.
 - keep bot-local state in one bot SQLite DB.
 - keep bot-local websocket/feed clients first.

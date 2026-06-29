@@ -25,10 +25,10 @@ Account uses Simulator for execution.
 
 ```text
 Notebook/manual coding path may instantiate BotRuntime directly.
-Managed simnet path uses Server/BotManager and Ray.
+Managed simnet path uses Server/BotManager when lifecycle code exists.
 bot_id = server DB sequence for simnet_bot
 bot_db = workspace/db/simnet_bot_<bot_id>.db
-start BotRuntime directly or through Ray actor with exec_network, bot_id
+start BotRuntime directly with exec_network, bot_id
 bot = bot_setup(exec_network=simnet, bot_id=bot_id)
 
 data = WsData(bot.config)
@@ -146,7 +146,7 @@ end_loop:
 ```
 
 Direct notebook/manual mode owns the BotRuntime process. Managed simnet mode
-uses Ray for actor lifecycle. BotRuntime owns `bot_db`.
+uses BotRuntime as the lifecycle owner. BotRuntime owns `bot_db`.
 
 ## stop semantics
 

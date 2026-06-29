@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
 import itertools
 import json
-import os
 from pathlib import Path
+import signal
 import sqlite3
+import threading
 import time
 import tomllib
 from typing import Any
 
-import ray
 from sqlalchemy import delete, func, select
 
 from nuubot.core.logger import format_bar, format_ms, logger
@@ -23,12 +24,14 @@ from nuubot.datastore import AccountRow, BotrunRow, EventRow, FillRow, OrderRow,
 from nuubot.nuubot import Nuubot
 from nuubot.signaler.emacross import SignalerEmaCross
 
-MAX_SWEEP_RAY_TASKS = 8
+MAX_SWEEP_WORKERS = 8
 
 
-@dataclass(frozen=True)
+@dataclass
 class SweepManager:
     nuubot: Nuubot
+    executor: ProcessPoolExecutor
+    finalizers: list[threading.Thread]
 
     def create_sweep(self, template: str | dict[str, Any]) -> int:
         template_data = self._template_data(template)
@@ -73,13 +76,18 @@ class SweepManager:
             raise RuntimeError("sweep produced no sweepruns")
 
         sweeprun_ids = self._reset_and_create_sweepruns(sweep_id, botrun_configs)
-        ensure_ray()
-        refs = [
-            run_sweeprun_task.remote(str(db_path), sweep_id, sweeprun_id)
+        futures = [
+            (sweeprun_id, self.executor.submit(run_sweeprun_task, str(db_path), sweep_id, sweeprun_id))
             for sweeprun_id in sweeprun_ids
         ]
-        finalize_sweep_task.options(num_cpus=0).remote(str(db_path), sweep_id, refs)
+        finalizer = threading.Thread(target=finalize_sweep_task, args=(str(db_path), sweep_id, futures))
+        self.finalizers.append(finalizer)
+        finalizer.start()
         return self.status_sweep(sweep_id)
+
+    def shutdown(self) -> None:
+        for finalizer in self.finalizers:
+            finalizer.join()
 
     def status_sweep(self, sweep_id: int) -> dict[str, Any]:
         db_path = self.sweep_db_path(sweep_id)
@@ -184,21 +192,18 @@ class SweepManager:
         return result
 
 
-def sweepmgr_setup(nuubot: Nuubot) -> SweepManager:
+def sweepmgr_setup(nuubot: Nuubot, executor: ProcessPoolExecutor | None = None) -> SweepManager:
     if nuubot.config is None or nuubot.datastore is None:
         raise RuntimeError("nuubot_setup() must complete before sweepmgr_setup()")
-    return SweepManager(nuubot)
+    if executor is None:
+        executor = ProcessPoolExecutor(max_workers=MAX_SWEEP_WORKERS, initializer=init_sweep_worker)
+    return SweepManager(nuubot, executor, [])
 
 
-def ensure_ray() -> None:
-    if not ray.is_initialized():
-        os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
-        print("INFO:     Ray startup in progress.", flush=True)
-        ray.init(num_cpus=MAX_SWEEP_RAY_TASKS, include_dashboard=False, ignore_reinit_error=True)
-        print("INFO:     Ray startup complete.", flush=True)
+def init_sweep_worker() -> None:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-@ray.remote
 def run_sweeprun_task(db_path: str, sweep_id: int, sweeprun_id: int) -> dict[str, Any]:
     try:
         with sqlite3.connect(db_path, timeout=30) as conn:
@@ -291,9 +296,20 @@ async def run_sweeprun_data_loop(db_path: str, sweep_id: int, sweeprun_id: int, 
     return result
 
 
-@ray.remote(num_cpus=0)
-def finalize_sweep_task(db_path: str, sweep_id: int, refs: list[Any]) -> dict[str, Any]:
-    ray.get(refs)
+def finalize_sweep_task(db_path: str, sweep_id: int, futures: list[tuple[int, Future]]) -> dict[str, Any]:
+    for sweeprun_id, future in futures:
+        try:
+            future.result()
+        except Exception as exc:
+            with sqlite3.connect(db_path, timeout=30) as conn:
+                conn.execute(
+                    "UPDATE sweeprun SET status = 'failed', error_code = 'process_failed', error_text = ?, updated_at = CURRENT_TIMESTAMP WHERE sweeprun_id = ?",
+                    (str(exc), sweeprun_id),
+                )
+                conn.execute(
+                    "UPDATE botrun SET status = 'failed', error_code = 'process_failed', error_text = ?, updated_at = CURRENT_TIMESTAMP WHERE sweeprun_id = ?",
+                    (str(exc), sweeprun_id),
+                )
     with sqlite3.connect(db_path, timeout=30) as conn:
         counts = {
             status: conn.execute("SELECT COUNT(*) FROM sweeprun WHERE status = ?", (status,)).fetchone()[0]

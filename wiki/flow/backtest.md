@@ -28,10 +28,10 @@ create timer events.
 
 ```text
 Notebook/manual coding path may instantiate BotRuntime directly.
-Managed backtest path uses Server/BotManager and Ray.
+Managed backtest path uses Server/BotManager when lifecycle code exists.
 bot_id = server DB seq for backtest_bot
 bot_db = workspace/db/backtest_bot_<bot_id>.db
-start BotRuntime directly or through Ray actor with exec_network, bot_id
+start BotRuntime directly with exec_network, bot_id
 bot = bot_setup(exec_network=simnet, bot_id=bot_id)
 
 data = FileData(bot.config)
@@ -159,9 +159,8 @@ end_loop:
   log telemetry
 ```
 
-Direct notebook/manual mode owns the BotRuntime process. Managed one-off
-backtests use Ray for actor lifecycle. Sweep-generated backtests run as Ray
-tasks in the sweep flow.
+Direct notebook/manual mode owns the BotRuntime process. Sweep-generated
+backtests run as process-pool tasks in the sweep flow.
 
 ## stop semantics
 

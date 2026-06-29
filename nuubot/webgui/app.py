@@ -33,7 +33,7 @@ def get():
 
 @rt("/server")
 def get():
-    return placeholder("Server", "Server health, Ray status, and datastore status will live here.")
+    return placeholder("Server", "Server health, sweep workers, and datastore status will live here.")
 
 
 @rt("/user")

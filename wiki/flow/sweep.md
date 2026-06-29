@@ -13,7 +13,7 @@ tags: [flow, sweep, backtest]
 
 Sweep generates many bot configs and runs them to compare results.
 
-Sweep is a Ray task fanout for sweep-generated bot configs.
+Sweep is a `ProcessPoolExecutor` fanout for sweep-generated bot configs.
 
 Generated bot configs usually use:
 
@@ -44,9 +44,9 @@ Fast sweep skips runtime/clock ceremony for speed.
 bars = load_binance_bars(configs[0])
 
 for config in configs:
-  submit Ray task
+  submit process-pool task
 
-Ray task:
+Process-pool task:
   create sweeprun DB and tables if needed
   signaler = SignalerEmaCross(config)
   signals = signaler.ingest_many(bars)
@@ -86,9 +86,9 @@ Standard sweep proves generated bot configs through normal runtime backtest.
 
 ```text
 for config in configs:
-  submit Ray task
+  submit process-pool task
 
-Ray task:
+Process-pool task:
   create sweeprun DB and tables if needed
   runtime = Runtime(config)
   runtime.init()
@@ -120,7 +120,7 @@ Rerun/reset:
 
 ```text
 delete sweep_<id>.db or sweeprun_<id>.db
-submit Ray task again
+submit process-pool task again
 ```
 
 ## compare

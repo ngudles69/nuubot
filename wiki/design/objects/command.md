@@ -15,8 +15,7 @@ CommandServer lives in `command.py`.
 
 It is the runtime-side command owner inside BotRuntime.
 
-Ray mode uses Ray actor calls as the first command path. Manual/notebook mode
-has no actor handle, so CommandServer polls the bot-local `command` table.
+Managed and manual modes use the bot-local `command` table.
 Both modes write bot-local events, state, and heartbeat.
 
 It is not an aiohttp server.
@@ -46,7 +45,7 @@ External commands:
 | `start()` | Initialized CommandServer. | Running CommandServer. | Starts command/heartbeat state. Does not execute commands until Runtime enters normal flow. |
 | `stop()` | Running CommandServer. | Stopped CommandServer. | Writes stopped/terminal ownership state where `bot_id` and `run_token` match. |
 | `heartbeat()` | Current runtime ownership. | Updated bot row. | Updates `last_seen_at` only where `bot_id` and `run_token` match. |
-| `next_command()` | Runtime command state. | Pending command or none. | In Ray mode, returns actor-delivered command. In manual mode, polls the bot-local `command` table. |
+| `next_command()` | Runtime command state. | Pending command or none. | Polls the bot-local `command` table. |
 | `execute(command)` | Runtime command. | Command result. | Executes supported runtime command and writes done/error audit when needed. |
 
 Supported runtime commands first:
@@ -67,7 +66,7 @@ Internal functions:
 - read runtime identity when available.
 - write runtime ownership to bot row.
 - update heartbeat.
-- read actor-local or bot-local DB command state.
+- read bot-local DB command state.
 - dispatch command to runtime callback.
 - write command result.
 
@@ -75,7 +74,7 @@ Internal functions:
 
 - ownership writer.
 - heartbeat writer.
-- actor command reader.
+- command reader.
 - command result writer.
 - command dispatcher.
 
@@ -91,9 +90,7 @@ Internal functions:
   instead.
 - `run_token` protects the current run from stale process writes.
 - Every runtime DB update must include `bot_id` and `run_token`.
-- Ray actor state plus heartbeat freshness are liveness evidence in managed
-  mode.
-- Manual mode liveness is bot-local heartbeat freshness.
+- Heartbeat freshness is liveness evidence in managed and manual modes.
 - `command`, `event`, and `botstate` are bot-local tables, never shared
   server DB tables.
 - No Redis.

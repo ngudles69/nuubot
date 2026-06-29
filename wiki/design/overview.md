@@ -16,14 +16,14 @@ tags: [design, overview]
    telemetry.
 3. [State](state.md): SQLite state, bot state, exchange meta,
    reconciliation.
-4. [Server](server.md): Server, WebGUI, managers, CLI helper, Ray ownership.
+4. [Server](server.md): Server, WebGUI, managers, CLI helper, worker ownership.
 5. [Server DB](server-db.md): Server DB ownership and access rules.
 6. [BotManager](botmanager.md): bot control-plane ownership.
 7. [SweepManager](sweepmanager.md): sweep control-plane ownership.
 8. [Server API](server-api.md): route rules and route-list reference.
 9. [WebGUI](webgui.md): FastHTML operator UI.
 10. [DataEngines](dataengines.md): optional shared websocket/feed engines.
-11. [Ray](ray.md): Ray actor/task process model.
+11. [Process Pool](processpool.md): ProcessPoolExecutor sweep worker model.
 12. [Strategy](strategy.md): risk, signalers, executors.
 13. [Sweeps](sweeps.md): sweep, sweeprun, bot config, parameter shape.
 
@@ -49,16 +49,17 @@ without recreating the over-built shape of `nuutrader6`.
 - Keep Server as the admin/API/control process that owns managers.
 - Keep FastHTML WebGUI inside Server as the operator display and command
   surface.
-- Keep BotRuntime runnable directly from notebooks without Ray.
-- Use Ray as the live managed process layer for bot actors and sweep tasks.
+- Keep BotRuntime runnable directly from notebooks.
+- Use `ProcessPoolExecutor` for sweep parallelism.
+- Defer live bot process management until BotManager needs it.
 - Keep live bot websocket/feed clients bot-local first.
 
 ## decisions
 
 - Use a Python package folder for real code.
 - Code/test bots through notebooks using direct BotRuntime.
-- Run live managed bots through Server/BotManager using Ray actor launch.
-- Run a sweep through Server/SweepManager using Ray task launch.
+- Run live managed bots through Server/BotManager when lifecycle code exists.
+- Run a sweep through Server/SweepManager using process-pool task launch.
 - Start Server and WebGUI with `uv run python -m nuubot.server`.
 - CLI is a thin operator helper over the same manager/helper functions used by
   API routes.
@@ -81,18 +82,14 @@ without recreating the over-built shape of `nuutrader6`.
   bot_id)` once.
 - `bot_setup()` creates/opens the per-bot SQLite DB and loads the bot row,
   accounts, positions, orders, fills, and free-form state.
-- Each bot actor, sweep task, and sweeprun task initializes its own SQLite DB
+- Each bot runtime, sweep task, and sweeprun task initializes its own SQLite DB
   file and tables if missing.
 - Per-bot DB tables do not repeat `bot_id`; the SQLite file is the bot
   boundary.
 - Server DB access is open connection, read/write, close.
-- Instance DB access is owned by the running actor/task.
-- Ray is first-class:
-  - BotRuntime is plain Python.
-  - live managed bots are stateful Ray actor wrappers around BotRuntime.
-  - sweeps are stateless Ray tasks.
-  - add `ray` as a project dependency and install with `rtk uv sync`.
-- Ray is not the Server. Server uses Ray.
+- Instance DB access is owned by the running runtime/task.
+- `ProcessPoolExecutor` is the current sweep worker layer.
+- Do not add Ray, Redis, Celery, or another process manager until measured need.
 - Shared DataEngines are deferred until per-bot feeds fail against a measured
   exchange limit, bandwidth, CPU, or fanout problem.
 - API/routes validate input, call one manager/helper function, and return the
@@ -139,7 +136,7 @@ without recreating the over-built shape of `nuutrader6`.
 | `Server API` | [server-api.md](server-api.md) | Thin API route boundary. |
 | `WebGUI` | [webgui.md](webgui.md) | FastHTML display and command-control UI. |
 | `DataEngines` | [dataengines.md](dataengines.md) | Optional shared live feed services. |
-| `Ray` | [ray.md](ray.md) | Actor/task process layer. |
+| `Process Pool` | [processpool.md](processpool.md) | Sweep worker process layer. |
 | `WsData` / `FileData` | [objects/data.md](objects/data.md) | Live websocket data and historical file data. |
 | `Signaler` | [objects/signaler.md](objects/signaler.md) | Indicators and signal consensus. |
 | `Executor` | [objects/executor.md](objects/executor.md) | Strategy execution logic. |
@@ -151,17 +148,17 @@ without recreating the over-built shape of `nuutrader6`.
 ```text
 Sweep -> Sweeprun -> Bot config -> Runtime/Bot
 Program entrypoint -> Nuubot -> Config + Server DB
-Server/WebGUI entrypoint -> nuubot_setup -> BotManager -> Ray bot actor
-Server -> SweepManager -> Ray sweep task
+Server/WebGUI entrypoint -> nuubot_setup -> BotManager
+Server -> SweepManager -> ProcessPoolExecutor sweeprun task
 API route -> Manager/helper function -> result
 Cli -> Manager/helper function -> result
-Bot actor -> bot SQLite DB
-Sweep task -> sweep/sweeprun SQLite DB
+Bot runtime -> bot SQLite DB
+Sweep task -> sweep SQLite DB
 Notebook -> BotRuntime -> bot SQLite DB
-Runtime/Bot actor -> short server DB check/meta read
-Runtime/Bot actor -> bot_setup -> Bot row + Accounts + Positions + Orders + Fills + State
+Runtime/Bot -> short server DB check/meta read
+Runtime/Bot -> bot_setup -> Bot row + Accounts + Positions + Orders + Fills + State
 Runtime/Bot -> Clock -> ExchangeData snapshot
-Runtime/Bot -> CommandServer -> Ray actor command or bot-local command
+Runtime/Bot -> CommandServer -> bot-local command
 Runtime/Bot -> Risk -> Signaler -> Executor
 Executor -> Account -> Ledger -> Position -> Order -> Fill
 Runtime/Domain objects -> instance SQLite DB
@@ -199,7 +196,7 @@ CommandServer(nuubot, bot_id, runtime_callbacks)
 - No protocol/base class hierarchy unless real code needs it.
 - No Alembic/migration layer.
 - No Postgres.
-- No custom process manager beside Ray.
+- No custom process manager.
 - No CLI-owned bot/sweep/datastore business logic.
 - No shared websocket server first.
 - No Redis.
@@ -211,10 +208,8 @@ CommandServer(nuubot, bot_id, runtime_callbacks)
 
 ## proof needs
 
-- Notebook can start direct BotRuntime without Ray.
-- CLI/Ray starts a runnable bot actor for managed live runs.
-- Ray can start a bot actor.
-- Ray can start sweep tasks.
+- Notebook can start direct BotRuntime.
+- Server/SweepManager can start process-pool sweep tasks.
 - Server SQLite DB is created if missing by `nuubot_setup()`.
 - Bot/sweep/sweeprun SQLite DB files are created if missing by actor/task init.
 - Bot DB file existence proves the bot exists.

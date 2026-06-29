@@ -37,14 +37,14 @@ Rules for files under `wiki/**`.
     clock/replay, command server, telemetry, simulator binding.
   - `design/state.md`: SQLite datastore, exchange meta, positions/orders/fills,
     events, frontend read model.
-  - `design/server.md`: Server, WebGUI, managers, CLI helper, Ray ownership.
+  - `design/server.md`: Server, WebGUI, managers, CLI helper, worker ownership.
   - `design/server-db.md`: Server DB ownership and access rules.
   - `design/botmanager.md`: BotManager ownership and interfaces.
   - `design/sweepmanager.md`: SweepManager ownership and interfaces.
   - `design/server-api.md`: Server API route rules and route-list reference.
   - `design/webgui.md`: FastHTML WebGUI ownership and layout.
   - `design/dataengines.md`: optional shared websocket/feed engines.
-  - `design/ray.md`: Ray actor/task process model.
+  - `design/processpool.md`: ProcessPoolExecutor sweep worker model.
   - `design/strategy.md`: risk, signalers, executors.
   - `design/sweeps.md`: sweep, sweeprun, bot config, parameters.
 3. Flow:

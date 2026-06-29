@@ -95,7 +95,7 @@ State ownership:
 - `Fill` writes to the fill table.
 - `Event` writes to the bot-local event table.
 - `ExchangeMeta` writes to the server DB exchange meta table.
-- `CommandServer` handles Ray actor commands or bot-local command table polling.
+- `CommandServer` handles bot-local command table polling.
 - `Bot` writes bot lifecycle/status/state rows to its bot DB.
 - `Datastore` does not save domain objects.
 
@@ -195,8 +195,8 @@ operator restarts. Do not add fallback IDs or a custom seq recovery layer.
 
 Command state:
 
-- Ray actor calls are the first command path in managed mode.
-- Manual/notebook mode polls the bot-local `command` table.
+- Bot-local command DB writes are the command path in managed mode.
+- Manual/notebook mode also polls the bot-local `command` table.
 - `command`, `event`, and `botstate` are local bot DB tables.
 - There is no shared command table.
 - No Redis and no aiohttp.
@@ -306,13 +306,12 @@ Examples:
 ## frontend read model
 
 Frontend is a separate scope from bot runtime. It discovers DB files and reads
-per-instance SQLite read models. Commands go through Ray actor calls for managed
-runs or the bot-local `command` table for manual runs.
+per-instance SQLite read models. Commands go through bot-local command tables.
 
 Frontend server responsibilities later:
 
 - List configured, running, and terminal bots.
-- Show bot status, Ray actor evidence, run token, and heartbeat freshness.
+- Show bot status, run token, and heartbeat freshness.
 - Show latest risk score and signal state.
 - Show open/closed positions, orders, fills, and events.
 - Show dirty state when cleanup failed.

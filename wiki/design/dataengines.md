@@ -33,7 +33,7 @@ Use this page only if per-bot feeds become insufficient.
 - signaler/risk/executor logic.
 - order execution.
 - historical file replay.
-- Ray actor lifecycle.
+- managed process lifecycle.
 - normal first-pass live bot feeds.
 
 ## interfaces
@@ -64,12 +64,12 @@ External functions:
 | `snapshot(...)` | Symbol/intervals/network. | Latest market snapshot. | Returns latest known data or fails loud when required data is unavailable. |
 | `status()` | None. | JSON-safe status. | Reports connection, reconnect count, subscriptions, and last error. |
 
-## Ray rule
+## process rule
 
-DataEngines are not Ray actors first and are not Server-owned first.
+DataEngines are not managed processes first and are not Server-owned first.
 
 Add a shared DataEngine only if bot-local websocket clients fail against a
 measured exchange limit, bandwidth, CPU, or fanout problem.
 
-Move a shared DataEngine to Ray only if the shared service itself needs crash
-isolation, placement, or multi-machine fanout.
+Move a shared DataEngine to its own process only if the shared service itself
+needs crash isolation, placement, or multi-machine fanout.

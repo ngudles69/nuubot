@@ -97,7 +97,7 @@ Routes must not:
 - create bot rows directly.
 - allocate server sequences directly.
 - create SQLite tables directly.
-- start Ray actors or submit Ray tasks directly.
+- start worker processes directly.
 - parse bot templates deeply.
 - build strategy/executor/account objects.
 - contain display/report construction logic.

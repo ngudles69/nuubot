@@ -26,10 +26,10 @@ Account uses real exchange execution.
 
 ```text
 Notebook/manual coding path may instantiate BotRuntime directly.
-Live managed path uses Server/BotManager and Ray.
+Live managed path uses Server/BotManager when lifecycle code exists.
 bot_id = server DB seq for <mainnet_or_testnet>_bot
 bot_db = workspace/db/<mainnet_or_testnet>_bot_<bot_id>.db
-start BotRuntime directly or through Ray actor with exec_network, bot_id
+start BotRuntime directly with exec_network, bot_id
 bot = bot_setup(exec_network=<mainnet_or_testnet>, bot_id=bot_id)
 
 data = WsData(bot.config)
@@ -147,7 +147,7 @@ end_loop:
 ```
 
 Direct notebook/manual mode owns the BotRuntime process. Managed live mode uses
-Ray for actor lifecycle. BotRuntime owns `bot_db`.
+BotRuntime as the lifecycle owner. BotRuntime owns `bot_db`.
 
 ## stop semantics
 

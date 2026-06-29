@@ -14,7 +14,7 @@ tags: [design, sweeps]
 - `bot`: one runtime instance lifecycle: init, start, loop, stop.
 - `sweeprun`: one generated parameter set over one market/window period.
 - `sweep`: hyperparameter definition that permutates into sweepruns.
-- Ray runs sweeps as stateless tasks.
+- `ProcessPoolExecutor` runs sweeps as stateless tasks.
 
 ## hard rule
 
@@ -118,13 +118,13 @@ Never silently swap `grid` to `grid_fast` because `mode = "fast"`.
 
 Persistence rule:
 
-- fast sweep: Ray task writes final result to the sweep/sweeprun SQLite DB.
-- standard sweep: Ray task writes final result to the sweep/sweeprun SQLite DB.
-- mainnet/testnet/simnet: bot actor writes full persistence to its own SQLite
+- fast sweep: process-pool task writes final result to the sweep/sweeprun SQLite DB.
+- standard sweep: process-pool task writes final result to the sweep/sweeprun SQLite DB.
+- mainnet/testnet/simnet: bot runtime writes full persistence to its own SQLite
   DB.
-- one-off backtest bot: Ray bot actor writes full persistence to
+- one-off backtest bot: bot runtime writes full persistence to
   `backtest_bot_<id>.db`.
-- sweep-generated backtest/sweeprun: Ray task writes final result to the sweep
+- sweep-generated backtest/sweeprun: process-pool task writes final result to the sweep
   DB and optional per-sweeprun DB.
 - rerun/reset: delete the sweep/sweeprun SQLite file and run again.
 
@@ -142,8 +142,7 @@ Build two small proofs before building the full sweep system.
 
 1. Fast sweep mode:
 
-Target proof runs through the CLI/Ray task launch path. The current
-`python -m nuubot.core.sweep` command is only a pre-Ray smoke check.
+Target proof runs through the SweepManager process-pool task path.
 
 Purpose:
 
@@ -172,13 +171,12 @@ Current code note:
 
 2. Standard sweep mode:
 
-Target proof runs through the CLI/Ray task launch path. The current
-`python -m nuubot.core.sweep` command is only a pre-Ray smoke check.
+Target proof runs through the SweepManager process-pool task path.
 
 Purpose:
 
 - Generate normal backtest configs.
-- Run each config through a Ray task using the canonical backtest loop.
+- Run each config through a process-pool task using the canonical backtest loop.
 - Prove generated sweepruns can use the canonical backtest loop.
 
 Skip:
@@ -293,7 +291,7 @@ create sweep SQLite DB
 record sweep started_at
 generate permutations
 insert sweeprun summaries with sweeprun config and bot config
-submit Ray tasks
+submit process-pool tasks
 store each sweeprun result summary in the sweep DB, including timing
 mark sweep complete/error
 ```

@@ -39,8 +39,9 @@ easy to understand, easy to run, and hard to overcomplicate.
   plus one persistent server DB for seq numbers, server state, and
   exchange meta.
 - Code/test bots through notebooks using direct BotRuntime.
-- Use Ray as the live managed process layer: bots are stateful actor wrappers
-  around BotRuntime and sweeps are stateless tasks.
+- Use `ProcessPoolExecutor` for sweep parallelism.
+- Keep managed bot process control simple and defer it until BotManager needs
+  real live lifecycle handling.
 - Keep bot websocket/feed clients bot-local first.
 
 ## commands

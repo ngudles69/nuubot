@@ -24,6 +24,6 @@ Rules for files under `wiki/design/**`.
 9. `server-api.md`: API route rules and route-list reference.
 10. `webgui.md`: FastHTML WebGUI ownership and layout.
 11. `dataengines.md`: optional shared websocket/feed engines.
-12. `ray.md`: Ray actor/task process model.
+12. `processpool.md`: ProcessPoolExecutor sweep worker model.
 13. `strategy.md`: risk, signalers, executors.
 14. `sweeps.md`: sweep, sweeprun, bot config, parameters.

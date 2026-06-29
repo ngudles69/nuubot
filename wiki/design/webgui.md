@@ -58,7 +58,7 @@ Repo-root helpers:
 - User-edited bot/sweep templates stay as TOML.
 - API submit body for create flows may be raw TOML text.
 - DB storage uses canonical JSON after manager/domain validation.
-- Sweep run progress comes from SQLite rows, not Ray memory.
+- Sweep run progress comes from SQLite rows, not worker memory.
 - Keep route handlers small.
 - WebGUI display code may build HTML.
 - WebGUI owns HTML page shape, toast shape, and redirect behavior.
