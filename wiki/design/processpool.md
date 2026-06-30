@@ -16,12 +16,12 @@ tags: [design, processpool, sweeps]
 - Sweeps run as stateless process-pool tasks.
 - SQLite owns persisted state and progress.
 - Server does not start a separate worker service during startup.
-- Server owns one sweep process pool.
-- SweepManager submits all sweep runs to the server-owned pool.
+- Each sweep owns its own process pool.
+- Workers are not global; the user chooses worker count per sweep.
 - SweepManager owns finalizer threads and joins them during server shutdown.
-- Server shutdown closes the sweep process pool.
+- Sweep finalizers close their sweep-local process pool.
 - Sweep worker processes ignore Ctrl+C; the server process handles Ctrl+C and
-  performs pool shutdown.
+  waits for finalizers during shutdown.
 - BotRuntime remains plain Python and must run without a process manager.
 
 ## dependencies
@@ -58,7 +58,7 @@ write own sweeprun results/status
 close sweep DB
 ```
 
-Sweep execution is capped at 8 local worker processes first.
+Sweep execution defaults to 4 local worker processes and is capped at 8.
 
 SQLite owns progress:
 

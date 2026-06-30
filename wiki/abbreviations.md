@@ -1,7 +1,7 @@
 ---
 title: abbreviations
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [glossary, naming]
@@ -37,6 +37,17 @@ when a short name is clearer than the full word.
 | `cfg` | config | local variable only when obvious |
 | `db` | database | file/path/local variable |
 | `tbl` | table | local variable only when obvious |
+| `ctx` / `Ctx` | context | local variable / class suffix |
+| `IdCtx` | id context | small dataclass carrying IDs/config |
+
+## id naming
+
+- DB primary keys use explicit `<thing>_id`, for example `bot_id`,
+  `sweep_id`, `sweeprun_id`, `position_id`, `order_id`, and `fill_id`.
+- References use the same explicit `<thing>_id` name.
+- Python objects may expose `self.id` internally when it is the object's own
+  id.
+- Do not rename DB primary keys to bare `id` unless the schema rule changes.
 
 ## exchange ids
 

@@ -253,6 +253,8 @@ class PositionRow(Base):
     position_id         : Mapped[int]          = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
     # parent ids
+    sweep_id            : Mapped[int | None]   = mapped_column(Integer, nullable=True, index=True)
+    sweeprun_id         : Mapped[int | None]   = mapped_column(Integer, nullable=True, index=True)
     bot_id              : Mapped[int]          = mapped_column(BigInteger, index=True)
     botrun_id           : Mapped[int | None]   = mapped_column(BigInteger, nullable=True, index=True)
     acct_id             : Mapped[str]          = mapped_column(Text, index=True)
@@ -313,6 +315,8 @@ class OrderRow(Base):
     cloid               : Mapped[str | None]   = mapped_column(Text, nullable=True, index=True)
 
     # parent ids
+    sweep_id            : Mapped[int | None]   = mapped_column(Integer, nullable=True, index=True)
+    sweeprun_id         : Mapped[int | None]   = mapped_column(Integer, nullable=True, index=True)
     bot_id              : Mapped[int]          = mapped_column(BigInteger, index=True)
     botrun_id           : Mapped[int | None]   = mapped_column(BigInteger, nullable=True, index=True)
     position_id         : Mapped[int]          = mapped_column(BigInteger, index=True)
@@ -380,6 +384,8 @@ class FillRow(Base):
     cloid               : Mapped[str | None]   = mapped_column(Text, nullable=True, index=True)
 
     # parent ids
+    sweep_id            : Mapped[int | None]   = mapped_column(Integer, nullable=True, index=True)
+    sweeprun_id         : Mapped[int | None]   = mapped_column(Integer, nullable=True, index=True)
     bot_id              : Mapped[int]          = mapped_column(BigInteger, index=True)
     botrun_id           : Mapped[int | None]   = mapped_column(BigInteger, nullable=True, index=True)
     order_id            : Mapped[int]          = mapped_column(BigInteger, index=True)

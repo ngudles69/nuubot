@@ -4,7 +4,8 @@ from pathlib import Path
 import tomllib
 
 from nuubot.core.logger import logger
-from nuubot.core.models.mconfig import BotrunConfig, SweeprunConfig, SweepConfig
+from nuubot.core.models.mconfig import BotrunConfig
+from nuubot.sweeps.models import SweeprunConfig, SweepConfig
 
 log = logger("workspace/logs/runtime.log")
 

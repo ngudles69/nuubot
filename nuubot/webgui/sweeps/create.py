@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fasthtml.common import *
@@ -32,20 +33,48 @@ def register(rt) -> None:
         except Exception as exc:
             return create_page(template, str(exc))
 
+    @rt("/sweeps/{sweep_id}/edit", methods="get")
+    def get(request, sweep_id: int, error: str = ""):
+        ensure_server_state(request.app)
+        data = sweepmgr_api.load_sweep(request.app.state.sweepmgr, sweep_id)
+        template = json.dumps(data["config"], indent=2, sort_keys=True)
+        return create_page(template, error, title=f"Edit Sweep {sweep_id}", action=f"/sweeps/{sweep_id}/edit", primary="Save Sweep", rerun=True)
 
-def create_page(template: str, error: str = ""):
+    @rt("/sweeps/{sweep_id}/edit", methods="post")
+    async def post(request, sweep_id: int):
+        form = await request.form()
+        template = str(form.get("template", "")).strip()
+        if not template:
+            return create_page("", "template is required", title=f"Edit Sweep {sweep_id}", action=f"/sweeps/{sweep_id}/edit", primary="Save Sweep", rerun=True)
+        try:
+            ensure_server_state(request.app)
+            sweepmgr_api.update_sweep(request.app.state.sweepmgr, sweep_id, template)
+            if form.get("run"):
+                sweepmgr_api.run_sweep(request.app.state.sweepmgr, sweep_id)
+                request.session["toast"] = (f"Sweep ID {sweep_id} saved and submitted", "alert-success")
+            else:
+                request.session["toast"] = (f"Sweep ID {sweep_id} saved", "alert-success")
+            return RedirectResponse("/sweeps", status_code=303)
+        except Exception as exc:
+            return create_page(template, str(exc), title=f"Edit Sweep {sweep_id}", action=f"/sweeps/{sweep_id}/edit", primary="Save Sweep", rerun=True)
+
+
+def create_page(template: str, error: str = "", *, title: str = "Create Sweep", action: str = "/sweeps/create", primary: str = "Create Sweep", rerun: bool = False):
     message = ()
     if error:
         message = (Toast(error, cls=(ToastHT.end, ToastVT.top), alert_cls="alert-error", dur=3.0),)
+    buttons = [Button(primary, cls="uk-btn uk-btn-primary")]
+    if rerun:
+        buttons.append(Button("Save and Run", name="run", value="1", cls="uk-btn uk-btn-default"))
     return shell(
         Section(
             Card(
-                CardTitle("Create Sweep"),
+                CardTitle(title),
                 Form(
                     Textarea(template, name="template", cls="uk-textarea template-field", spellcheck="false"),
-                    Button("Create Sweep", cls="uk-btn uk-btn-primary"),
+                    Div(*buttons, cls="actions"),
                     method="post",
-                    action="/sweeps/create",
+                    action=action,
                     cls="space-y-4",
                 ),
                 *message,

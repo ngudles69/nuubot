@@ -93,6 +93,7 @@ def sweep_row(row: dict, error: str = ""):
         Td(row["sweeprun_count"]),
         Td(row["created_at"]),
         Td(
+            A("Edit", href=f"/sweeps/{row['sweep_id']}/edit", cls="uk-btn uk-btn-sm uk-btn-default"),
             Form(
                 Button("Run", cls="uk-btn uk-btn-sm uk-btn-default"),
                 action=f"/sweeps/{row['sweep_id']}/run",

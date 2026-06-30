@@ -1,4 +1,5 @@
 from nuubot.datastore.datastore import Datastore
+from nuubot.datastore.models import Fill, Order, Position
 from nuubot.datastore.schemas import (
     AccountRow,
     BotRow,
@@ -25,9 +26,12 @@ __all__ = [
     "CommandRow",
     "Datastore",
     "EventRow",
+    "Fill",
     "FillRow",
     "Meta",
+    "Order",
     "OrderRow",
+    "Position",
     "PositionRow",
     "ServerSeq",
     "ServerState",

@@ -141,32 +141,3 @@ class BotrunConfig(BaseModel):
         if self.runtime.mode in {Mode.BACKTEST, Mode.SWEEP} and self.backtest is None:
             raise ValueError(f"{self.runtime.mode} mode requires [backtest]")
         return self
-
-
-class SweeprunConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    botrun: BotrunConfig
-    start: str = ""
-    stop: str = ""
-
-
-class SweepConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    sweep: dict[str, Any]
-    params: dict[str, Any]
-    botrun: BotrunConfig
-
-    @model_validator(mode="before")
-    @classmethod
-    def read_botrun_sections(cls, value: Any) -> Any:
-        if not isinstance(value, dict) or "botrun" in value:
-            return value
-        botrun_keys = ("runtime", "market", "signalers", "executor", "risk", "backtest")
-        botrun = {key: value[key] for key in botrun_keys if key in value}
-        return {
-            "sweep": value.get("sweep", {}),
-            "params": value.get("params", {}),
-            "botrun": botrun,
-        }

@@ -1,7 +1,7 @@
 ---
 title: ledger object
 created: 2026-06-23
-updated: 2026-06-23
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, objects, ledger, position, order, fill]
@@ -105,5 +105,8 @@ Internal functions:
 
 - Use `nuutrader6` ledger contracts as reference, not as direct copy.
 - Keep primitives small unless accounting rules force detail.
-- Ledger owns accounting truth; Datastore only stores rows.
+- Ledger/datastore owns local accounting truth.
+- Exchange accounting truth overrides local ledger/datastore truth during
+  reconciliation.
+- Do not keep a separate persistent in-memory truth.
 - Ledger primitives do not call Account, Runtime, Signaler, or Executor.

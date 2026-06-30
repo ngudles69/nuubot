@@ -16,7 +16,7 @@ from nuubot.core.market_data import FileDataEngine, WsDataEngine
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.risk import Risk
 from nuubot.core.telemetry import Telemetry
-from nuubot.executor.tradebot import ExecutorTrade, TradeConfig
+from nuubot.tradebot.tradebot import ExecutorTrade, TradeConfig
 from nuubot.signaler import Signaler
 
 log = logger("workspace/logs/runtime.log")

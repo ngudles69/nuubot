@@ -1,7 +1,7 @@
 ---
 title: state design
 created: 2026-06-20
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, state, datastore]
@@ -257,6 +257,12 @@ venue, symbol
 - `Fill` is exchange evidence.
 - Position accounting owns clear PnL.
 - Do not silently overwrite trading evidence.
+- Ledger/datastore owns the local accounting truth.
+- Exchange accounting truth overrides local ledger/datastore truth during
+  reconciliation.
+- Do not add a third persistent in-memory accounting truth.
+- In-memory lists/objects are temporary processing state after reading from the
+  datastore.
 
 ## reconciliation
 

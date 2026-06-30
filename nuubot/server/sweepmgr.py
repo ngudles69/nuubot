@@ -5,13 +5,14 @@ import re
 from typing import Any
 
 from nuubot.datastore import SweepRow
-from nuubot.sweep import SweepManager
+from nuubot.sweeps.sweepmgr import SweepManager
+from nuubot.sweeps.sweepmgr import run_sweep as run_sweep_job
 
 SWEEP_DB_RE = re.compile(r"^sweep_(\d+)\.db$")
 
 
 def create_sweep(sweepmgr: SweepManager, template: str) -> dict[str, Any]:
-    sweep_id = sweepmgr.create_sweep(template)
+    sweep_id = sweepmgr.create(template)
     return {"sweep_id": sweep_id}
 
 
@@ -24,7 +25,7 @@ def list_sweeps(sweepmgr: SweepManager) -> dict[str, Any]:
             row = session.get(SweepRow, sweep_id)
             if row is None:
                 raise RuntimeError(f"sweep row missing: {path}")
-            status = sweepmgr.status_sweep(sweep_id)
+            status = sweepmgr.status(sweep_id)
             rows.append(
                 {
                     "sweep_id": row.sweep_id,
@@ -43,16 +44,21 @@ def list_sweeps(sweepmgr: SweepManager) -> dict[str, Any]:
 
 
 def load_sweep(sweepmgr: SweepManager, sweep_id: int) -> dict[str, Any]:
-    config = sweepmgr.load_sweep(sweep_id)
+    config = sweepmgr.load(sweep_id)
     return {"sweep_id": sweep_id, "config": config}
 
 
+def update_sweep(sweepmgr: SweepManager, sweep_id: int, template: str) -> dict[str, Any]:
+    sweepmgr.update(sweep_id, template)
+    return {"sweep_id": sweep_id}
+
+
 def run_sweep(sweepmgr: SweepManager, sweep_id: int) -> dict[str, Any]:
-    return sweepmgr.run_sweep(sweep_id)
+    return run_sweep_job(sweepmgr, sweep_id)
 
 
 def status_sweep(sweepmgr: SweepManager, sweep_id: int) -> dict[str, Any]:
-    return sweepmgr.status_sweep(sweep_id)
+    return sweepmgr.status(sweep_id)
 
 
 def sweep_id_from_path(path: Path) -> int:

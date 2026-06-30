@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -295,6 +295,25 @@ submit process-pool tasks
 store each sweeprun result summary in the sweep DB, including timing
 mark sweep complete/error
 ```
+
+## current context shape
+
+This may still change, but the current shape is better than passing loose IDs
+through every child.
+
+- `IdCtx` is a small dataclass for internal sweep child objects.
+- `IdCtx` carries only IDs and bot config needed by children:
+  `sweep_id`, `sweeprun_id`, `bot_id`, `account_id`, and `bot_config`.
+- `datastore` means the DB target rows are written to. In sweeps this is the
+  SQLAlchemy engine for `workspace/db/sweep_<id>.db`.
+- `datastore` is passed separately from `IdCtx`.
+- `Position`, `Order`, and `Fill` receive `IdCtx` and use fields directly.
+- Internal sweep code does not revalidate `IdCtx`; missing fields should fail
+  loud.
+- External config/templates are validated at the boundary with Pydantic.
+- DB primary keys and references use explicit `<thing>_id` names.
+- In the current sweep path, `botrun_id` is written with the same value as
+  `bot_id`.
 
 ## parameter shape
 
