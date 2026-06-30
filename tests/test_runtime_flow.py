@@ -6,12 +6,12 @@ from nuubot.core.clock import ReplayClock
 from pydantic import ValidationError
 
 from nuubot.core.dtypes import Bar, DataNetwork, ExecNetwork, MarketSnapshot, Mode, ReplayEvent
+from nuubot.config.config import create_config
 from nuubot.config.models import AppConfig
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.format import format_bar, format_bbo, format_ms
 from nuubot.core.market_data import derive_bars, group_replay_events
-from nuubot.bots.runtime import Runtime
-from nuubot.core.telemetry import Telemetry
+from nuubot.signalers import Signaler
 
 
 class DummySignaler:
@@ -75,11 +75,9 @@ def test_pydantic_parses_runtime_mode_enums() -> None:
         "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
     })
     assert config.runtime.mode == Mode.SIMNET
-    assert config.runtime.data_network == DataNetwork.MAINNET
-    assert config.runtime.exec_network == ExecNetwork.SIMNET
 
 
-def test_mode_network_mapping_is_canonical() -> None:
+def test_app_mode_network_mapping_is_canonical() -> None:
     cases = [
         ("mainnet", DataNetwork.MAINNET, ExecNetwork.MAINNET),
         ("testnet", DataNetwork.TESTNET, ExecNetwork.TESTNET),
@@ -89,15 +87,11 @@ def test_mode_network_mapping_is_canonical() -> None:
     ]
 
     for mode, data_network, exec_network in cases:
-        config = BotrunConfig.model_validate({
-            "runtime": {"bot_id": 1, "mode": mode, "max_loop": 1, "loop_seconds": 1.0},
-            "market": {"symbol": "BTC", "interval": "1m"},
-            "signalers": [{"name": "startnow", "interval": "1m"}],
-            "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
-            "backtest": {"start": "2025-01-01", "stop": "2025-01-02", "data_dir": "workspace/data"},
-        })
-        assert config.runtime.data_network == data_network
-        assert config.runtime.exec_network == exec_network
+        data = app_config_data()
+        data["general"]["mode"] = mode
+        config = create_config(data)
+        assert config.data_network == data_network
+        assert config.exec_network == exec_network
 
 
 def test_app_config_rejects_manual_network_fields() -> None:
@@ -131,17 +125,8 @@ def app_config_data() -> dict:
             "logs_dir": "workspace/logs",
             "results_dir": "workspace/results",
         },
-        "databases": {
-            "server": "nuubot_server",
-            "mainnet": "nuubot_mainnet",
-            "testnet": "nuubot_testnet",
-            "simnet": "nuubot_simnet",
-            "backtest": "nuubot_backtest",
-            "sweeps": "nuubot_sweeps",
-        },
         "hyperliquid": {"default_network": "testnet"},
         "credentials": {
-            "database": {"host": "127.0.0.1", "port": 5432, "user": "postgres", "password": "postgres"},
             "hyperliquid": {
                 "accounts": [
                     {"network": "simnet", "name": "grid", "address": "0x0", "api_key": "key"},
@@ -166,23 +151,21 @@ async def test_replay_clock_dispatches_once_per_same_timestamp() -> None:
     assert len(called) == 1
 
 
-def test_runtime_keeps_all_signalers_for_same_new_bar() -> None:
-    runtime = Runtime.__new__(Runtime)
-    runtime.signalers = [DummySignaler("1m"), DummySignaler("1m")]
-    runtime.last_bar_ms_by_interval = {"1m": 999}
-    runtime.last_bar = None
-    runtime.bars_processed = 0
-    runtime.telemetry = Telemetry()
+def test_signaler_keeps_all_items_for_same_new_bar() -> None:
+    signaler = Signaler.__new__(Signaler)
+    signaler.items = [DummySignaler("1m"), DummySignaler("1m")]
+    signaler.last_bar_ms_by_interval = {"1m": 999}
+    signaler.last_bar = None
 
     bar = Bar(1_000, 1.0, 2.0, 0.5, 1.5, 10.0)
     snapshot = MarketSnapshot(bars={"1m": bar})
 
-    eligible = Runtime.eligible_signalers(runtime, snapshot)
-    Runtime.mark_bars_processed(runtime, eligible)
+    eligible = Signaler._eligible_items(signaler, snapshot)
+    new_bars = Signaler._mark_bars_processed(signaler, eligible)
 
     assert len(eligible) == 2
-    assert runtime.last_bar_ms_by_interval["1m"] == 1_000
-    assert runtime.bars_processed == 1
+    assert signaler.last_bar_ms_by_interval["1m"] == 1_000
+    assert new_bars == 1
 
 
 async def main() -> None:
@@ -191,11 +174,11 @@ async def main() -> None:
     test_log_format_helpers_are_compact()
     test_runtime_rejects_manual_network_fields()
     test_pydantic_parses_runtime_mode_enums()
-    test_mode_network_mapping_is_canonical()
+    test_app_mode_network_mapping_is_canonical()
     test_app_config_rejects_manual_network_fields()
     test_app_config_keeps_networks_out_of_general()
     await test_replay_clock_dispatches_once_per_same_timestamp()
-    test_runtime_keeps_all_signalers_for_same_new_bar()
+    test_signaler_keeps_all_items_for_same_new_bar()
 
 
 if __name__ == "__main__":

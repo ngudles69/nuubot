@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
 from nuubot.core.context import IdCtx
 from nuubot.core.dtypes import Bar, Signal
 from nuubot.core.format import format_bar, format_ms
 from nuubot.core.logger import LOG_DIR, logger
 from nuubot.core.market_data import date_ms, load_binance_bars
 from nuubot.core.models.mconfig import BotrunConfig
-from nuubot.datastore import BotrunRow, SweeprunRow
+from nuubot.datastore import BotrunRow, Datastore, SweeprunRow
 from nuubot.signalers.emacross import SignalerEmaCross
 from nuubot.sweeps.models import SweeprunConfig
 from nuubot.bots.executors.tradebot.tradebot import ExecutorTrade, TradeConfig, TradeLedger
@@ -34,56 +31,67 @@ class Sweeprun:
     bars: list[Bar] | None = None
     signaler: SignalerEmaCross | None = None
     executor: ExecutorTrade | None = None
-    engine: Engine | None = None
+    datastore: Datastore = field(default_factory=Datastore)
     run_log: Any | None = None
     log_path: Path | None = None
 
     def load(self) -> None:
-        if self.engine is None:
-            raise RuntimeError("sweeprun engine missing")
-        with Session(self.engine, expire_on_commit=False) as session:
-            sweeprun = session.get(SweeprunRow, self.sweeprun_id)
-            if sweeprun is None or sweeprun.sweep_id != self.sweep_id:
-                raise RuntimeError(f"sweeprun row missing: {self.sweeprun_id}")
+        # Claim the DB rows and load the generated bot config.
+        tx = self.datastore.tx(Path(self.db_path))
+        tx.start()
+        try:
+            sweeprun = tx.get(SweeprunRow, sweeprun_id=self.sweeprun_id)
+            if sweeprun.sweep_id != self.sweep_id:
+                raise RuntimeError(f"sweeprun row wrong sweep: {self.sweeprun_id}")
             sweeprun.status = "running"
-            botrun = session.query(BotrunRow).filter_by(sweeprun_id=self.sweeprun_id, botrun_index=0).one_or_none()
-            if botrun is None:
-                raise RuntimeError(f"botrun row missing: {self.sweeprun_id}")
+            botrun = tx.get(BotrunRow, sweeprun_id=self.sweeprun_id, botrun_index=0)
             botrun.status = "running"
             self.sweeprun_config = SweeprunConfig.model_validate(json.loads(sweeprun.config_json))
             self.config = self.sweeprun_config.botrun
             self.bot_id = int(botrun.bot_id)
-            session.commit()
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
 
     async def run(self) -> dict[str, Any]:
-        self.engine = create_engine(f"sqlite:///{Path(self.db_path).as_posix()}", future=True, connect_args={"timeout": 30})
+        # Workers own their datastore; they do not share Nuubot state.
+        self.load()
+
+        # Run the generated config and persist the final row state.
+        result = await self.loop()
+        result_json = json.dumps(result, sort_keys=True, separators=(",", ":"))
+        tx = self.datastore.tx(Path(self.db_path))
+        tx.start()
         try:
-            self.load()
-            result = await self.loop()
-            result_json = json.dumps(result, sort_keys=True, separators=(",", ":"))
-            with Session(self.engine, expire_on_commit=False) as session:
-                sweeprun = session.get(SweeprunRow, self.sweeprun_id)
-                if sweeprun is None:
-                    raise RuntimeError(f"sweeprun row missing: {self.sweeprun_id}")
-                sweeprun.status = "complete"
-                sweeprun.results_json = result_json
-                sweeprun.error_code = None
-                sweeprun.error_text = None
-                for botrun in session.query(BotrunRow).filter_by(sweeprun_id=self.sweeprun_id):
-                    if botrun.status != "complete":
-                        botrun.status = "complete"
-                        botrun.results_json = result_json
-                        botrun.error_code = None
-                        botrun.error_text = None
-                session.commit()
-            return result
+            sweeprun = tx.get(SweeprunRow, sweeprun_id=self.sweeprun_id)
+            sweeprun.status = "complete"
+            sweeprun.results_json = result_json
+            sweeprun.error_code = None
+            sweeprun.error_text = None
+            for botrun in tx.select(BotrunRow, sweeprun_id=self.sweeprun_id):
+                if botrun.status != "complete":
+                    botrun.status = "complete"
+                    botrun.results_json = result_json
+                    botrun.error_code = None
+                    botrun.error_text = None
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
         finally:
-            self.engine.dispose()
+            tx.close()
+        return result
 
     async def loop(self) -> dict[str, Any]:
+        # Build runtime objects and preload market data.
         self._setup()
         if self.config is None or self.bars is None or self.signaler is None or self.executor is None or self.run_log is None:
             raise RuntimeError("sweeprun setup incomplete")
+
+        # Warm up indicators before the tested backtest window.
         start_ms = date_ms(self.config.backtest.start)
         stop_ms = date_ms(self.config.backtest.stop)
         warmup = [bar for bar in self.bars if bar.ts_ms < start_ms][-self.signaler.required_bars :]
@@ -104,6 +112,8 @@ class Sweeprun:
         last_ts = None
         last_bar = None
         pending_signal = Signal()
+
+        # Execute each bar with the previous bar's signal, then prepare the next signal.
         for bar in self.bars:
             if bar.ts_ms < start_ms or bar.ts_ms > stop_ms:
                 continue
@@ -125,6 +135,7 @@ class Sweeprun:
                 f"entry={str(signal.entry).lower()} exit={str(signal.exit).lower()} reason={signal.reason}"
             )
 
+        # Close executor state and return the persisted result payload.
         await self.executor.stop(last_bar)
         trade_result = asdict(self.executor.result(bars_processed))
         result = {
@@ -147,8 +158,6 @@ class Sweeprun:
     def _setup(self) -> None:
         if self.config is None or self.bot_id is None or self.sweeprun_config is None:
             raise RuntimeError("sweeprun must load before setup")
-        if self.engine is None:
-            raise RuntimeError("sweeprun engine missing")
         self.id_ctx = IdCtx(
             sweep_id=self.sweep_id,
             sweeprun_id=self.sweeprun_id,
@@ -172,28 +181,33 @@ class Sweeprun:
                 "default",
             ),
             self.run_log,
-            TradeLedger(self.engine, self.id_ctx),
+            TradeLedger(self.datastore, Path(self.db_path), self.id_ctx),
         )
 
 
-def run_sweeprun_task(db_path: str, sweep_id: int, sweeprun_id: int, worker_name: str) -> dict[str, Any]:
+def run_sweeprun(db_path: str, sweep_id: int, sweeprun_id: int, worker_name: str) -> dict[str, Any]:
     try:
+        # Process-pool entry point for one generated sweeprun.
         return asyncio.run(Sweeprun(db_path, sweep_id, sweeprun_id, worker_name).run())
     except Exception as exc:
-        engine = create_engine(f"sqlite:///{Path(db_path).as_posix()}", future=True, connect_args={"timeout": 30})
+        # Save worker failure so the sweep can count it.
+        datastore = Datastore()
+        tx = datastore.tx(Path(db_path))
+        tx.start()
         try:
-            with Session(engine, expire_on_commit=False) as session:
-                sweeprun = session.get(SweeprunRow, sweeprun_id)
-                if sweeprun is not None:
-                    sweeprun.status = "failed"
-                    sweeprun.error_code = "sweeprun_failed"
-                    sweeprun.error_text = str(exc)
-                for botrun in session.query(BotrunRow).filter_by(sweeprun_id=sweeprun_id):
-                    if botrun.status != "complete":
-                        botrun.status = "failed"
-                        botrun.error_code = "sweeprun_failed"
-                        botrun.error_text = str(exc)
-                session.commit()
+            sweeprun = tx.get(SweeprunRow, sweeprun_id=sweeprun_id)
+            sweeprun.status = "failed"
+            sweeprun.error_code = "sweeprun_failed"
+            sweeprun.error_text = str(exc)
+            for botrun in tx.select(BotrunRow, sweeprun_id=sweeprun_id):
+                if botrun.status != "complete":
+                    botrun.status = "failed"
+                    botrun.error_code = "sweeprun_failed"
+                    botrun.error_text = str(exc)
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
         finally:
-            engine.dispose()
+            tx.close()
         return {"sweep_id": sweep_id, "sweeprun_id": sweeprun_id, "worker_name": worker_name, "status": "failed", "error": str(exc)}

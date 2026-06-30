@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from nuubot.core.dtypes import DataNetwork, ExecNetwork, HyperliquidNetwork, Mode
 
@@ -33,28 +33,6 @@ class PathsConfig(BaseModel):
     db_dir: str
     logs_dir: str
     results_dir: str
-
-
-class DatabasesConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    server: str
-    mainnet: str
-    testnet: str
-    simnet: str
-    backtest: str
-    sweeps: str
-
-    @field_validator("server", "mainnet", "testnet", "simnet", "backtest", "sweeps")
-    @classmethod
-    def valid_name(cls, value: str) -> str:
-        if value.strip() != value:
-            raise ValueError("database names must not have surrounding whitespace")
-        if not value or not ("a" <= value[0] <= "z"):
-            raise ValueError("database names must start with a lowercase letter")
-        if any(not (("a" <= char <= "z") or ("0" <= char <= "9") or char == "_") for char in value):
-            raise ValueError("database names must use lowercase letters, digits, and underscores")
-        return value
 
 
 class HyperliquidConfig(BaseModel):
@@ -100,6 +78,5 @@ class AppConfig(BaseModel):
     data_network: DataNetwork = DataNetwork.MAINNET
     exec_network: ExecNetwork = ExecNetwork.MAINNET
     paths: PathsConfig
-    databases: DatabasesConfig
     hyperliquid: HyperliquidConfig
     credentials: CredentialsConfig

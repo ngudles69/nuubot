@@ -6,64 +6,75 @@ import itertools
 import json
 import signal
 import threading
-from pathlib import Path
+import time
 from typing import Any
 
-from sqlalchemy import create_engine, delete, func, select
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
-
 from nuubot.core.sweep import expand_values, sweep_bot_data
-from nuubot.datastore import AccountRow, BotrunRow, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow
-from nuubot.nuubot import Nuubot
+from nuubot.datastore import AccountRow, BotrunRow, Datastore, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
 from nuubot.sweeps.models import SweepConfig
-from nuubot.sweeps.sweeprun import run_sweeprun_task
+from nuubot.sweeps.sweeprun import run_sweeprun
 
 MAX_SWEEP_WORKERS = 8
 
 
 @dataclass
 class Sweep:
-    nuubot: Nuubot
+    datastore: Datastore
     sweep_id: int
-    finalizers: dict[int, threading.Thread]
-    engine: Engine | None = None
+    result_threads: dict[int, threading.Thread]
+    run_lock: threading.Lock
 
     def run(self) -> dict[str, Any]:
-        finalizer = self.finalizers.get(self.sweep_id)
-        if finalizer is not None and finalizer.is_alive():
-            raise RuntimeError(f"sweep already running: {self.sweep_id}")
-        botrun_configs = self._botrun_configs()
-        if not botrun_configs:
-            raise RuntimeError("sweep produced no sweepruns")
-        sweeprun_ids = self._reset(botrun_configs)
-        workers = self._workers()
-        executor = ProcessPoolExecutor(max_workers=workers, initializer=init_sweep_worker)
-        futures = [
-            (sweeprun_id, executor.submit(run_sweeprun_task, str(self.dbpath()), self.sweep_id, sweeprun_id, self._worker_name(sweeprun_id)))
-            for sweeprun_id in sweeprun_ids
-        ]
-        finalizer = threading.Thread(target=self._finalize, args=(futures, executor), name=f"finalizer_sw_{self.sweep_id}")
-        self.finalizers[self.sweep_id] = finalizer
-        finalizer.start()
+        with self.run_lock:
+            result_thread = self.result_threads.get(self.sweep_id)
+            if result_thread is not None and result_thread.is_alive():
+                raise RuntimeError(f"sweep already running: {self.sweep_id}")
+
+            # Validate the config before changing existing sweep rows.
+            db = dbname(self.sweep_id, "sweep")
+            config = SweepConfig.model_validate(self._load_config())
+            workers = self._workers(config)
+            botrun_configs = self._botrun_configs(config)
+            if not botrun_configs:
+                raise RuntimeError("sweep produced no sweepruns")
+
+            # Build a fresh queued run set from the sweep config.
+            sweeprun_ids = self._reset(botrun_configs)
+
+            executor = None
+            try:
+                # Launch each sweeprun in the process pool.
+                executor = ProcessPoolExecutor(max_workers=workers, initializer=ignore_sigint_in_worker)
+                futures = [
+                    (sweeprun_id, executor.submit(run_sweeprun, str(self.datastore.dbpath(db)), self.sweep_id, sweeprun_id, self._worker_name(sweeprun_id)))
+                    for sweeprun_id in sweeprun_ids
+                ]
+
+                # Let the request return while a thread waits and writes sweep results.
+                started = time.perf_counter()
+                result_thread = threading.Thread(target=self._sweep_results, args=(futures, executor, started, workers), name=f"sweep_results_sw_{self.sweep_id}")
+                self.result_threads[self.sweep_id] = result_thread
+                result_thread.start()
+            except Exception as exc:
+                if executor is not None:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                self.result_threads.pop(self.sweep_id, None)
+                self._launch_failed(str(exc))
+                raise
         return self.status()
 
     def stop(self) -> None:
-        for finalizer in self.finalizers.values():
-            finalizer.join()
+        for result_thread in list(self.result_threads.values()):
+            result_thread.join()
 
     def status(self) -> dict[str, Any]:
-        with Session(self._engine(), expire_on_commit=False) as session:
-            sweep = session.get(SweepRow, self.sweep_id)
-            if sweep is None:
-                raise RuntimeError(f"sweep row missing: {self.sweep_id}")
-            counts = {
-                status: session.execute(
-                    select(func.count()).select_from(SweeprunRow).where(SweeprunRow.status == status)
-                ).scalar_one()
-                for status in ("queued", "running", "complete", "failed")
-            }
-            sweep_status = sweep.status
+        db = dbname(self.sweep_id, "sweep")
+        sweep = self.datastore.get(db, SweepRow, sweep_id=self.sweep_id)
+        counts = {
+            status: self.datastore.count(db, SweeprunRow, status=status)
+            for status in ("queued", "running", "complete", "failed")
+        }
+        sweep_status = sweep.status
         done_count = int(counts["complete"] + counts["failed"])
         total_count = int(sum(counts.values()))
         return {
@@ -78,11 +89,8 @@ class Sweep:
             "progress": f"{done_count}/{total_count}",
         }
 
-    def dbpath(self) -> Path:
-        return Path(self.nuubot.config.workspace.root) / self.nuubot.config.paths.db_dir / f"sweep_{self.sweep_id}.db"
-
-    def _botrun_configs(self) -> list[dict[str, Any]]:
-        config = SweepConfig.model_validate(self._load_config())
+    def _botrun_configs(self, config: SweepConfig) -> list[dict[str, Any]]:
+        # Expand the parameter grid into normal bot configs.
         sweep = config.sweep
         params = config.params
         mode = str(sweep.get("mode", ""))
@@ -99,35 +107,41 @@ class Sweep:
         return rows
 
     def _reset(self, botrun_configs: list[dict[str, Any]]) -> list[int]:
-        with Session(self._engine(), expire_on_commit=False) as session:
-            sweep = session.get(SweepRow, self.sweep_id)
-            if sweep is None:
-                raise RuntimeError(f"sweep row missing: {self.sweep_id}")
-
+        # Replace old child rows before workers start.
+        tx = self.datastore.tx(dbname(self.sweep_id, "sweep"))
+        tx.start()
+        try:
+            sweep = tx.get(SweepRow, sweep_id=self.sweep_id)
             for row_class in (FillRow, OrderRow, PositionRow, EventRow, AccountRow, BotrunRow, SweeprunRow):
-                session.execute(delete(row_class))
-            sweeprun_ids = self._create(session, botrun_configs)
+                tx.delete(row_class)
+            sweeprun_ids = self._create(tx, botrun_configs)
             sweep.status = "running"
             sweep.results_json = "{}"
             sweep.sweeprun_count = len(sweeprun_ids)
             sweep.error_code = None
             sweep.error_text = None
-            session.commit()
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
         return sweeprun_ids
 
-    def _create(self, session: Any, botrun_configs: list[dict[str, Any]]) -> list[int]:
+    def _create(self, tx: Any, botrun_configs: list[dict[str, Any]]) -> list[int]:
+        # Store each generated config as one queued sweeprun.
         sweeprun_ids = []
         for index, botrun_config in enumerate(botrun_configs):
-            sweeprun = SweeprunRow(
-                sweep_id=self.sweep_id,
-                sweeprun_index=index,
-                config_json=json.dumps({"botrun": botrun_config}, sort_keys=True, separators=(",", ":")),
-                results_json="{}",
-                status="queued",
+            sweeprun = tx.insert(
+                SweeprunRow(
+                    sweep_id=self.sweep_id,
+                    sweeprun_index=index,
+                    config_json=json.dumps({"botrun": botrun_config}, sort_keys=True, separators=(",", ":")),
+                    results_json="{}",
+                    status="queued",
+                )
             )
-            session.add(sweeprun)
-            session.flush()
-            session.add(
+            tx.insert(
                 BotrunRow(
                     botrun_id=int(botrun_config["runtime"]["bot_id"]),
                     sweeprun_id=sweeprun.sweeprun_id,
@@ -141,8 +155,8 @@ class Sweep:
             sweeprun_ids.append(int(sweeprun.sweeprun_id))
         return sweeprun_ids
 
-    def _workers(self) -> int:
-        workers = int(SweepConfig.model_validate(self._load_config()).sweep.get("workers", 4))
+    def _workers(self, config: SweepConfig) -> int:
+        workers = int(config.sweep.get("workers", 4))
         if workers <= 0:
             raise RuntimeError(f"sweep.workers must be positive: {workers}")
         if workers > MAX_SWEEP_WORKERS:
@@ -153,55 +167,78 @@ class Sweep:
         return f"worker_sw_{self.sweep_id}_sr_{sweeprun_id}"
 
     def _load_config(self) -> dict[str, Any]:
-        with Session(self._engine(), expire_on_commit=False) as session:
-            sweep = session.get(SweepRow, self.sweep_id)
-            if sweep is None:
-                raise RuntimeError(f"sweep row missing: {self.sweep_id}")
-            return json.loads(sweep.config_json)
+        sweep = self.datastore.get(dbname(self.sweep_id, "sweep"), SweepRow, sweep_id=self.sweep_id)
+        return json.loads(sweep.config_json)
 
-    def _engine(self) -> Engine:
-        if self.engine is None:
-            self.engine = create_engine(
-                f"sqlite:///{self.dbpath().as_posix()}",
-                future=True,
-                connect_args={"timeout": 30},
-            )
-        return self.engine
-
-    def _finalize(self, futures: list[tuple[int, Future]], executor: ProcessPoolExecutor) -> None:
+    def _launch_failed(self, message: str) -> None:
+        tx = self.datastore.tx(dbname(self.sweep_id, "sweep"))
+        tx.start()
         try:
-            finalize_sweep_task(self._engine(), self.sweep_id, futures, executor)
+            sweep = tx.get(SweepRow, sweep_id=self.sweep_id)
+            sweep.status = "failed"
+            sweep.error_code = "launch_failed"
+            sweep.error_text = message
+            for row in tx.select(SweeprunRow):
+                if row.status != "complete":
+                    row.status = "failed"
+                    row.error_code = "launch_failed"
+                    row.error_text = message
+            for row in tx.select(BotrunRow):
+                if row.status != "complete":
+                    row.status = "failed"
+                    row.error_code = "launch_failed"
+                    row.error_text = message
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
         finally:
-            self.finalizers.pop(self.sweep_id, None)
+            tx.close()
+
+    def _sweep_results(self, futures: list[tuple[int, Future]], executor: ProcessPoolExecutor, started: float, workers: int) -> None:
+        try:
+            sweep_results(self.datastore, dbname(self.sweep_id, "sweep"), self.sweep_id, futures, executor, started, workers)
+        finally:
+            self.result_threads.pop(self.sweep_id, None)
 
 
-def init_sweep_worker() -> None:
+def ignore_sigint_in_worker() -> None:
+    # Let the parent/server process handle Ctrl+C and worker cleanup.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def finalize_sweep_task(engine: Engine, sweep_id: int, futures: list[tuple[int, Future]], executor: ProcessPoolExecutor) -> dict[str, Any]:
+def sweep_results(datastore: Datastore, db: str, sweep_id: int, futures: list[tuple[int, Future]], executor: ProcessPoolExecutor, started: float, workers: int) -> dict[str, Any]:
     try:
+        # Wait for all runs to finish and record process-level failures.
         for sweeprun_id, future in futures:
             try:
                 future.result()
             except Exception as exc:
-                with Session(engine, expire_on_commit=False) as session:
-                    sweeprun = session.get(SweeprunRow, sweeprun_id)
-                    if sweeprun is not None:
-                        sweeprun.status = "failed"
-                        sweeprun.error_code = "process_failed"
-                        sweeprun.error_text = str(exc)
-                    for botrun in session.query(BotrunRow).filter_by(sweeprun_id=sweeprun_id):
+                tx = datastore.tx(db)
+                tx.start()
+                try:
+                    sweeprun = tx.get(SweeprunRow, sweeprun_id=sweeprun_id)
+                    sweeprun.status = "failed"
+                    sweeprun.error_code = "process_failed"
+                    sweeprun.error_text = str(exc)
+                    for botrun in tx.select(BotrunRow, sweeprun_id=sweeprun_id):
                         if botrun.status != "complete":
                             botrun.status = "failed"
                             botrun.error_code = "process_failed"
                             botrun.error_text = str(exc)
-                    session.commit()
-        with Session(engine, expire_on_commit=False) as session:
+                    tx.commit()
+                except Exception:
+                    tx.rollback()
+                    raise
+                finally:
+                    tx.close()
+
+        # Compute sweep status from the sweeprun rows.
+        tx = datastore.tx(db)
+        tx.start()
+        try:
             counts = {
-                status: session.execute(
-                    select(func.count()).select_from(SweeprunRow).where(SweeprunRow.status == status)
-                ).scalar_one()
+                status: tx.count(SweeprunRow, status=status)
                 for status in ("queued", "running", "complete", "failed")
             }
             total = sum(counts.values())
@@ -209,14 +246,28 @@ def finalize_sweep_task(engine: Engine, sweep_id: int, futures: list[tuple[int, 
             status = "failed" if counts["failed"] else "complete"
             if done < total:
                 status = "running"
-            result = {"sweep_id": sweep_id, "status": status, "done_count": done, "total_count": total, **counts}
-            sweep = session.get(SweepRow, sweep_id)
-            if sweep is None:
-                raise RuntimeError(f"sweep row missing: {sweep_id}")
+            bars = sum(int(json.loads(row.results_json or "{}").get("bars") or 0) for row in tx.select(SweeprunRow))
+            total_ms = int((time.perf_counter() - started) * 1000)
+            total_seconds = total_ms / 1000
+            timing = {
+                "total_ms": total_ms,
+                "bars": bars,
+                "bars_per_second": round(bars / total_seconds, 2) if total_seconds else 0.0,
+                "configs_per_second": round(total / total_seconds, 2) if total_seconds else 0.0,
+                "worker_count": workers,
+            }
+            result = {"sweep_id": sweep_id, "status": status, "done_count": done, "total_count": total, "timing": timing, **counts}
+
+            # Save the sweep result summary to the parent sweep row.
+            sweep = tx.get(SweepRow, sweep_id=sweep_id)
             sweep.status = status
             sweep.results_json = json.dumps(result, sort_keys=True, separators=(",", ":"))
-            session.commit()
+            tx.commit()
             return result
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
     finally:
         executor.shutdown(wait=True, cancel_futures=False)
-        engine.dispose()

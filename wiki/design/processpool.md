@@ -18,10 +18,10 @@ tags: [design, processpool, sweeps]
 - Server does not start a separate worker service during startup.
 - Each sweep owns its own process pool.
 - Workers are not global; the user chooses worker count per sweep.
-- SweepManager owns finalizer threads and joins them during server shutdown.
-- Sweep finalizers close their sweep-local process pool.
+- SweepManager owns result threads and joins them during server shutdown.
+- Sweep result threads close their sweep-local process pool.
 - Sweep worker processes ignore Ctrl+C; the server process handles Ctrl+C and
-  waits for finalizers during shutdown.
+  waits for result threads during shutdown.
 - BotRuntime remains plain Python and must run without a process manager.
 
 ## dependencies

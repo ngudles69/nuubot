@@ -1,7 +1,7 @@
 ---
 title: sweepmanager design
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, server, sweepmanager, sweeps]
@@ -36,29 +36,23 @@ not implement sweep behavior themselves.
 
 External functions:
 
-- `create_sweep_via_file(path)`
-- `create_sweep_via_template(template)`
-- `run_sweep(sweep_id)`
-- `stop_sweep(sweep_id)`
-- `load_sweep(sweep_id)`
-- `list_sweeps()`
-- `view_sweep(sweep_id)`
-- `status_sweep(sweep_id)`
-- `list_sweepruns(sweep_id)`
+- `create(template)`
+- `update(sweep_id, template)`
+- `run(sweep_id)`
+- `load(sweep_id)`
+- `list()`
+- `status(sweep_id)`
 
 ## contracts
 
 | Function | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `create_sweep_via_file(path)` | Sweep template path. | Sweep id and DB path. | Loads file, then calls `create_sweep_via_template(template)`. |
-| `create_sweep_via_template(template)` | Loaded sweep template. | Sweep id and DB path. | Validates through sweep/template code, allocates sequence, creates sweep DB, and writes sweep rows. |
-| `run_sweep(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless process-pool tasks. |
-| `stop_sweep(sweep_id)` | Running sweep id. | Stop accepted/result. | Stops/cancels outstanding sweep work where supported. |
-| `load_sweep(sweep_id)` | Sweep id. | Sweep row plus DB path. | Reads the sweep DB. |
-| `list_sweeps()` | None. | Sweep DB paths/rows. | Discovers `workspace/db/sweep_*.db`. |
-| `view_sweep(sweep_id)` | Sweep id. | Operator view. | Reads sweep DB result data. |
-| `status_sweep(sweep_id)` | Sweep id. | SQLite-backed sweep status. | Counts sweeprun rows by status and returns progress. |
-| `list_sweepruns(sweep_id)` | Sweep id. | Sweeprun rows. | Reads the sweep DB or sweeprun DB files. |
+| `create(template)` | TOML/JSON text or parsed template. | Sweep id. | Validates through sweep/template code, allocates sequence, creates sweep DB, and writes the sweep row. |
+| `update(sweep_id, template)` | Sweep id and TOML/JSON text or parsed template. | None. | Refuses active sweeps, resets run-owned rows, and replaces config on the existing sweep DB. |
+| `run(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config/workers, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless process-pool tasks. |
+| `load(sweep_id)` | Sweep id. | Sweep config. | Reads and validates the sweep config from the sweep DB. |
+| `list()` | None. | Sweep DB paths/rows/status. | Discovers `workspace/db/sweep_*.db`. |
+| `status(sweep_id)` | Sweep id. | SQLite-backed sweep status. | Counts sweeprun rows by status and returns progress. |
 
 ## notes
 
@@ -79,17 +73,19 @@ External functions:
 Run flow:
 
 ```text
-run_sweep(sweep_id)
+run(sweep_id)
   open workspace/db/sweep_<sweep_id>.db
   load and validate sweep.config_json
+  validate sweep.workers
   delete run-owned rows except sweep
   reset sweep.results_json
   create sweeprun rows
   create botrun rows
   set sweep.status = running
-  submit sweeprun tasks to the server-owned process pool
-  finalize sweep row when all sweepruns finish
-  join finalizer threads during server shutdown
+  create a sweep-local process pool
+  submit sweeprun tasks to that pool
+  write sweep results when all sweepruns finish
+  join result threads during server shutdown
 ```
 
 Each sweeprun task receives:

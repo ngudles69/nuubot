@@ -1,23 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-import builtins
-import json
 from pathlib import Path
-import urllib.request
 from typing import Any
 
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, delete as sa_delete, func, select as sa_select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from nuubot.config.models import AppConfig
-from nuubot.core.dtypes import DataNetwork, HyperliquidNetwork
 from nuubot.datastore.schemas import (
     AccountRow,
     BotRow,
@@ -36,87 +27,207 @@ from nuubot.datastore.schemas import (
     SweepRow,
 )
 
-HYPERLIQUID_MAINNET_INFO_URL = "https://api.hyperliquid.xyz/info"
-HYPERLIQUID_TESTNET_INFO_URL = "https://api.hyperliquid-testnet.xyz/info"
-META_MAX_AGE = timedelta(hours=24)
+SERVER_TABLES = (
+    ServerSeq,
+    ServerState,
+    Meta,
+)
+BOT_TABLES = (
+    BotRow,
+    AccountRow,
+    CommandRow,
+    EventRow,
+    BotStateRow,
+    SimulatorStateRow,
+    PositionRow,
+    OrderRow,
+    FillRow,
+)
+SWEEP_TABLES = (
+    SweepRow,
+    SweeprunRow,
+    BotrunRow,
+    AccountRow,
+    EventRow,
+    PositionRow,
+    OrderRow,
+    FillRow,
+)
 
+class DatastoreTx:
+    def __init__(self, datastore: Datastore, db: Path | str) -> None:
+        self.datastore = datastore
+        self.db = Path(db)
+        self.engine: Engine | None = None
+        self.session: Session | None = None
 
-@dataclass(frozen=True, slots=True)
-class HcMetaRow:
-    symbol: str
-    kind: str
-    asset_id: int | None
-    exchange_index: int | None
-    max_leverage: int | None
-    size_decimals: int | None
-    price_decimals: int | None
-    is_delisted: bool
-    is_canonical: bool | None
-    raw_json: dict[str, Any]
+    def start(self) -> None:
+        self.engine = self.datastore._engine(self.db)
+        self.session = Session(self.engine, expire_on_commit=False)
+
+    def commit(self) -> None:
+        self._session().commit()
+
+    def rollback(self) -> None:
+        if self.session is not None:
+            self.session.rollback()
+
+    def close(self) -> None:
+        if self.session is not None:
+            self.session.close()
+            self.session = None
+        if self.engine is not None:
+            self.engine.dispose()
+            self.engine = None
+
+    def insert(self, row: Any) -> Any:
+        session = self._session()
+        session.add(row)
+        session.flush()
+        return row
+
+    def update(self, table: Any, row: Any) -> Any:
+        return self._session().merge(row)
+
+    def delete(self, table: Any, **where: Any) -> int:
+        statement = sa_delete(table)
+        for field, value in where.items():
+            statement = statement.where(getattr(table, field) == value)
+        result = self._session().execute(statement)
+        return int(result.rowcount or 0)
+
+    def select(self, table: Any, **where: Any) -> list[Any]:
+        return list(self._session().query(table).filter_by(**where).all())
+
+    def get(self, table: Any, **where: Any) -> Any:
+        rows = self.select(table, **where)
+        if len(rows) != 1:
+            raise RuntimeError(f"{table.__name__} expected 1 row, got {len(rows)}: {where}")
+        return rows[0]
+
+    def count(self, table: Any, **where: Any) -> int:
+        statement = sa_select(func.count()).select_from(table)
+        for field, value in where.items():
+            statement = statement.where(getattr(table, field) == value)
+        return int(self._session().execute(statement).scalar_one())
+
+    def upsert(self, row: Any) -> None:
+        values = {key: value for key, value in vars(row).items() if not key.startswith("_")}
+        table = type(row)
+        statement = sqlite_insert(table.__table__).values(**values)
+        self._session().execute(statement.on_conflict_do_nothing())
+
+    def _session(self) -> Session:
+        if self.session is None:
+            raise RuntimeError("transaction not started")
+        return self.session
 
 
 class Datastore:
-    def __init__(self, config: AppConfig) -> None:
-        self.config = config
-        self.server_path = self._server_path()
+    def __init__(self, dbroot: Path | str | None = None) -> None:
+        self.dbroot = Path(dbroot).resolve() if dbroot is not None else None
 
-    def init(self) -> Datastore:
-        self.init_server()
-        self.ensure_exchange_meta()
-        return self
-
-    def init_server(self) -> None:
-        self.server_path.parent.mkdir(parents=True, exist_ok=True)
-        engine = self._engine(self.server_path)
+    def create(self, db: Path | str) -> None:
+        db = self.dbpath(db)
+        db.parent.mkdir(parents=True, exist_ok=True)
+        engine = self._engine(db)
         try:
-            for table in (
-                ServerSeq.__table__,
-                ServerState.__table__,
-                Meta.__table__,
-            ):
-                table.create(engine, checkfirst=True)
+            with engine.connect():
+                pass
         finally:
             engine.dispose()
 
-    def init_bot(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def drop(self, db: Path | str) -> None:
+        self.dbpath(db).unlink(missing_ok=True)
+
+    def dbinit(self, db: Path | str) -> None:
+        db = self.dbpath(db)
+        db.parent.mkdir(parents=True, exist_ok=True)
+        engine = self._engine(db)
+        try:
+            for table in self._tables(db):
+                table.__table__.create(engine, checkfirst=True)
+        finally:
+            engine.dispose()
+
+    def insert(self, db: Path | str, row: Any) -> Any:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            row = tx.insert(row)
+            tx.commit()
+            return row
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
+
+    def update(self, db: Path | str, table: Any, row: Any) -> Any:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            row = tx.update(table, row)
+            tx.commit()
+            return row
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
+
+    def delete(self, db: Path | str, table: Any, **where: Any) -> int:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            count = tx.delete(table, **where)
+            tx.commit()
+            return count
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
+
+    def select(self, db: Path | str, table: Any, **where: Any) -> list[Any]:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            return tx.select(table, **where)
+        finally:
+            tx.close()
+
+    def get(self, db: Path | str, table: Any, **where: Any) -> Any:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            return tx.get(table, **where)
+        finally:
+            tx.close()
+
+    def count(self, db: Path | str, table: Any, **where: Any) -> int:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            return tx.count(table, **where)
+        finally:
+            tx.close()
+
+    def upsert(self, db: Path | str, row: Any) -> None:
+        tx = self.tx(db)
+        tx.start()
+        try:
+            tx.upsert(row)
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
+
+    def next_seq(self, db: Path | str, name: str) -> int:
+        path = self._require_db(db)
         engine = self._engine(path)
-        try:
-            for table in (
-                BotRow.__table__,
-                AccountRow.__table__,
-                CommandRow.__table__,
-                EventRow.__table__,
-                BotStateRow.__table__,
-                SimulatorStateRow.__table__,
-                PositionRow.__table__,
-                OrderRow.__table__,
-                FillRow.__table__,
-            ):
-                table.create(engine, checkfirst=True)
-        finally:
-            engine.dispose()
-
-    def init_sweep(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        engine = self._engine(path)
-        try:
-            for table in (
-                SweepRow.__table__,
-                SweeprunRow.__table__,
-                BotrunRow.__table__,
-                AccountRow.__table__,
-                EventRow.__table__,
-                PositionRow.__table__,
-                OrderRow.__table__,
-                FillRow.__table__,
-            ):
-                table.create(engine, checkfirst=True)
-        finally:
-            engine.dispose()
-
-    def next_seq(self, name: str) -> int:
-        engine = self._engine(self.server_path)
         try:
             with engine.connect() as conn:
                 conn.exec_driver_sql("BEGIN IMMEDIATE")
@@ -146,81 +257,24 @@ class Datastore:
         finally:
             engine.dispose()
 
-    def ensure_exchange_meta(self) -> None:
-        if not self._exchange_meta_stale():
-            return
-        self.upsert_exchange_meta(fetch_hc_meta(data_network=self._meta_network()))
+    def tx(self, db: Path | str) -> DatastoreTx:
+        return DatastoreTx(self, self._require_db(db))
 
-    @contextmanager
-    def session(self, path: Path | None = None) -> Iterator[Session]:
-        engine = self._engine(path or self.server_path)
-        session = Session(engine, expire_on_commit=False)
-        try:
-            yield session
-        finally:
-            session.close()
-            engine.dispose()
+    def dbpath(self, db: Path | str) -> Path:
+        path = Path(db)
+        if path.is_absolute():
+            return path
+        if path.parent != Path("."):
+            raise RuntimeError(f"datastore db must be a filename or absolute path: {db}")
+        if self.dbroot is None:
+            raise RuntimeError("datastore DB root missing")
+        return self.dbroot / path
 
-    def stop(self) -> None:
-        pass
-
-    def _exchange_meta_stale(self) -> bool:
-        engine = self._engine(self.server_path)
-        try:
-            with engine.connect() as conn:
-                count = conn.execute(select(func.count()).select_from(Meta.__table__)).scalar_one()
-                if count == 0:
-                    return True
-                newest = conn.execute(select(func.max(Meta.fetched_at))).scalar_one()
-        finally:
-            engine.dispose()
-        if newest is None:
-            return True
-        if newest.tzinfo is None:
-            newest = newest.replace(tzinfo=UTC)
-        return newest < datetime.now(UTC) - META_MAX_AGE
-
-    def upsert_exchange_meta(self, rows: list[HcMetaRow]) -> None:
-        fetched_at = datetime.now(UTC)
-        engine = self._engine(self.server_path)
-        try:
-            with engine.begin() as conn:
-                for row in rows:
-                    statement = sqlite_insert(Meta.__table__).values(
-                        symbol=row.symbol,
-                        kind=row.kind,
-                        asset_id=row.asset_id,
-                        exchange_index=row.exchange_index,
-                        max_leverage=row.max_leverage,
-                        size_decimals=row.size_decimals,
-                        price_decimals=row.price_decimals,
-                        is_delisted=row.is_delisted,
-                        is_canonical=row.is_canonical,
-                        raw_json=json.dumps(row.raw_json, separators=(",", ":")),
-                        fetched_at=fetched_at,
-                    )
-                    conn.execute(
-                        statement.on_conflict_do_update(
-                            index_elements=[Meta.__table__.c.symbol, Meta.__table__.c.kind],
-                            set_={
-                                "asset_id": statement.excluded.asset_id,
-                                "exchange_index": statement.excluded.exchange_index,
-                                "max_leverage": statement.excluded.max_leverage,
-                                "size_decimals": statement.excluded.size_decimals,
-                                "price_decimals": statement.excluded.price_decimals,
-                                "is_delisted": statement.excluded.is_delisted,
-                                "is_canonical": statement.excluded.is_canonical,
-                                "raw_json": statement.excluded.raw_json,
-                                "fetched_at": statement.excluded.fetched_at,
-                            },
-                        )
-                    )
-        finally:
-            engine.dispose()
-
-    def _server_path(self) -> Path:
-        root = Path(self.config.workspace.root)
-        return root / self.config.paths.db_dir / "server.db"
+    def _require_db(self, db: Path | str) -> Path:
+        path = self.dbpath(db)
+        if not path.exists():
+            raise RuntimeError(f"datastore DB missing: {path}")
+        return path
 
     def _engine(self, path: Path) -> Engine:
         return create_engine(
@@ -230,107 +284,12 @@ class Datastore:
             connect_args={"timeout": 30},
         )
 
-    def _meta_network(self) -> HyperliquidNetwork:
-        if self.config.data_network == DataNetwork.TESTNET:
-            return HyperliquidNetwork.TESTNET
-        if self.config.data_network == DataNetwork.MAINNET:
-            return HyperliquidNetwork.MAINNET
-        return self.config.hyperliquid.default_network
-
-
-def fetch_hc_meta(*, data_network: HyperliquidNetwork) -> list[HcMetaRow]:
-    url = HYPERLIQUID_TESTNET_INFO_URL if data_network == HyperliquidNetwork.TESTNET else HYPERLIQUID_MAINNET_INFO_URL
-    perp_meta = fetch_info(url, "meta")
-    spot_meta = fetch_info(url, "spotMeta")
-    return normalize_perp_meta(perp_meta) + normalize_spot_meta(spot_meta)
-
-
-def fetch_info(url: str, request_type: str) -> dict[str, Any]:
-    body = json.dumps({"type": request_type}).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        value = json.loads(response.read().decode("utf-8"))
-    if not isinstance(value, dict):
-        raise RuntimeError(f"Hyperliquid {request_type} response must be an object")
-    return value
-
-
-def normalize_perp_meta(meta: dict[str, Any]) -> list[HcMetaRow]:
-    universe = meta.get("universe")
-    if not isinstance(universe, list):
-        raise RuntimeError("meta.universe missing")
-    rows: list[HcMetaRow] = []
-    for index, market in enumerate(universe):
-        if not isinstance(market, dict):
-            continue
-        symbol = required_string(market, "name").upper()
-        size_decimals = required_int(market, "szDecimals")
-        rows.append(
-            HcMetaRow(
-                symbol=symbol,
-                kind="perp",
-                asset_id=index,
-                exchange_index=index,
-                max_leverage=required_int(market, "maxLeverage"),
-                size_decimals=size_decimals,
-                price_decimals=max(6 - size_decimals, 0),
-                is_delisted=bool(market.get("isDelisted") or False),
-                is_canonical=None,
-                raw_json=market,
-            )
-        )
-    return rows
-
-
-def normalize_spot_meta(meta: dict[str, Any]) -> list[HcMetaRow]:
-    universe = meta.get("universe")
-    tokens = meta.get("tokens")
-    if not isinstance(universe, list) or not isinstance(tokens, list):
-        raise RuntimeError("spotMeta.universe/tokens missing")
-    rows: list[HcMetaRow] = []
-    for market in universe:
-        if not isinstance(market, dict):
-            continue
-        symbol = required_string(market, "name").upper()
-        index = required_int(market, "index")
-        token_indices = market.get("tokens")
-        if not isinstance(token_indices, list) or not token_indices:
-            raise RuntimeError(f"spot market tokens[0] missing: {symbol}")
-        base_token = find_spot_token(tokens, builtins.int(token_indices[0]))
-        size_decimals = required_int(base_token, "szDecimals")
-        rows.append(
-            HcMetaRow(
-                symbol=symbol,
-                kind="spot",
-                asset_id=index,
-                exchange_index=index,
-                max_leverage=None,
-                size_decimals=size_decimals,
-                price_decimals=max(8 - size_decimals, 0),
-                is_delisted=False,
-                is_canonical=bool(market["isCanonical"]) if "isCanonical" in market else None,
-                raw_json={"market": market, "base_token": base_token},
-            )
-        )
-    return rows
-
-
-def find_spot_token(tokens: list[Any], token_index: int) -> dict[str, Any]:
-    for token in tokens:
-        if isinstance(token, dict) and token.get("index") == token_index:
-            return token
-    raise RuntimeError(f"spot token index missing: {token_index}")
-
-
-def required_string(value: dict[str, Any], field: str) -> str:
-    result = value.get(field)
-    if not isinstance(result, str):
-        raise RuntimeError(f"{field} string missing")
-    return result
-
-
-def required_int(value: dict[str, Any], field: str) -> int:
-    result = value.get(field)
-    if result is None:
-        raise RuntimeError(f"{field} integer missing")
-    return builtins.int(result)
+    def _tables(self, db: Path) -> tuple[Any, ...]:
+        name = db.name
+        if name == "server.db":
+            return SERVER_TABLES
+        if name.startswith("sweep_"):
+            return SWEEP_TABLES
+        if "_bot_" in db.stem:
+            return BOT_TABLES
+        raise RuntimeError(f"unknown DB type: {db}")

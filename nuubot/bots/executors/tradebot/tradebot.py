@@ -2,16 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-
-from sqlalchemy.engine import Engine
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.orm import Session
+from pathlib import Path
+from typing import Any
 
 from nuubot.core.context import IdCtx
 from nuubot.core.dtypes import Bar, BotRunResult, Signal
 from nuubot.core.format import format_ms
 from nuubot.core.logger import logger
-from nuubot.datastore import Fill, Order, Position
+from nuubot.datastore import Datastore, Fill, Order, Position
 from nuubot.datastore.schemas import AccountRow, BotrunRow, PositionRow
 
 log = logger("runtime.log")
@@ -30,56 +28,72 @@ class TradeConfig:
 class TradeLedger:
     def __init__(
         self,
-        datastore: Engine,
+        datastore: Datastore,
+        db: Path,
         ctx: IdCtx,
     ) -> None:
         self.datastore = datastore
+        self.db = db
         self.ctx = ctx
         self.base_bot_id = ctx.bot_id
         self.current_bot_id: int | None = ctx.bot_id
         self.next_botrun_index = 1
 
     def start(self) -> None:
-        with self._session() as session:
-            statement = sqlite_insert(AccountRow).values(
-                acct_id=self.ctx.account_id,
-                bot_id=self.ctx.bot_id,
-                role="trade",
-                name=self.ctx.account_id,
-                exec_network="sweep",
-                status="active",
+        tx = self.datastore.tx(self.db)
+        tx.start()
+        try:
+            tx.upsert(
+                AccountRow(
+                    acct_id=self.ctx.account_id,
+                    bot_id=self.ctx.bot_id,
+                    role="trade",
+                    name=self.ctx.account_id,
+                    exec_network="sweep",
+                    status="active",
+                ),
             )
-            session.execute(statement.on_conflict_do_nothing(index_elements=[AccountRow.acct_id]))
-            botrun = session.get(BotrunRow, self.current_bot_id)
-            if botrun is not None:
-                botrun.status = "running"
-            session.commit()
+            botrun = tx.get(BotrunRow, botrun_id=self.current_bot_id)
+            botrun.status = "running"
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
 
     def open_position(self, side: str, price: float, ts_ms: int) -> int:
         bot_id = self._bot_id()
         position_id = bot_id
         order_side = "buy" if side == "long" else "sell"
         position = Position(self.ctx, side=side, price=price, ts_ms=ts_ms)
-        with self._session() as session:
-            position.save(session)
-            order = self._add_order(session, bot_id, position_id, order_side, price, ts_ms, reduceonly=False)
-            self._add_fill(session, bot_id, order.id, order_side, price, ts_ms, closed_pnl=None)
-            session.commit()
+        tx = self.datastore.tx(self.db)
+        tx.start()
+        try:
+            tx.insert(position.row())
+            order = self._add_order(tx, bot_id, position_id, order_side, price, ts_ms, reduceonly=False)
+            self._add_fill(tx, bot_id, order.id, order_side, price, ts_ms, closed_pnl=None)
+            tx.commit()
             return position_id
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
 
     def close_position(self, position_id: int, side: str, price: float, change_pct: float, reason: str, ts_ms: int) -> None:
         bot_id = self.current_bot_id
         if bot_id is None:
             raise RuntimeError("active trade missing bot_id")
         order_side = "sell" if side == "long" else "buy"
-        with self._session() as session:
-            position = session.get(PositionRow, position_id)
-            if position is None:
-                raise RuntimeError(f"position row missing: {position_id}")
+        tx = self.datastore.tx(self.db)
+        tx.start()
+        try:
+            position = tx.get(PositionRow, position_id=position_id)
             entry_price = float(position.avg_entry_px)
             pnl_cash = price - entry_price if side == "long" else entry_price - price
-            order = self._add_order(session, bot_id, position_id, order_side, price, ts_ms, reduceonly=True)
-            self._add_fill(session, bot_id, order.id, order_side, price, ts_ms, closed_pnl=pnl_cash)
+            order = self._add_order(tx, bot_id, position_id, order_side, price, ts_ms, reduceonly=True)
+            self._add_fill(tx, bot_id, order.id, order_side, price, ts_ms, closed_pnl=pnl_cash)
             position.status = "closed"
             position.current_sz = "0"
             position.avg_exit_px = str(price)
@@ -92,17 +106,23 @@ class TradeLedger:
             position.closed_ts = ts_ms
             position.last_update_ts = ts_ms
             position.exit_reason = reason
-            botrun = session.get(BotrunRow, bot_id)
-            if botrun is not None:
-                botrun.status = "complete"
-                botrun.results_json = json.dumps({"position_id": position_id, "pnl_pct": change_pct, "exit_reason": reason}, sort_keys=True, separators=(",", ":"))
-            session.commit()
+            botrun = tx.get(BotrunRow, botrun_id=bot_id)
+            botrun.status = "complete"
+            botrun.results_json = json.dumps({"position_id": position_id, "pnl_pct": change_pct, "exit_reason": reason}, sort_keys=True, separators=(",", ":"))
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
         self.current_bot_id = None
 
     def _bot_id(self) -> int:
         if self.current_bot_id is not None:
             return self.current_bot_id
-        with self._session() as session:
+        tx = self.datastore.tx(self.db)
+        tx.start()
+        try:
             next_bot_id = self.base_bot_id * 1_000_000 + self.next_botrun_index
             botrun = BotrunRow(
                 botrun_id=next_bot_id,
@@ -113,27 +133,29 @@ class TradeLedger:
                 results_json="{}",
                 status="running",
             )
-            session.add(botrun)
-            session.commit()
+            tx.insert(botrun)
             self.current_bot_id = next_bot_id
             self.ctx.bot_id = next_bot_id
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
         self.next_botrun_index += 1
         return self.current_bot_id
 
-    def _add_order(self, session: Session, bot_id: int, position_id: int, side: str, price: float, ts_ms: int, *, reduceonly: bool) -> Order:
+    def _add_order(self, tx: Any, bot_id: int, position_id: int, side: str, price: float, ts_ms: int, *, reduceonly: bool) -> Order:
         self.ctx.bot_id = bot_id
         order = Order(self.ctx, position_id=position_id, side=side, price=price, ts_ms=ts_ms, reduceonly=reduceonly)
-        order.save(session)
+        tx.insert(order.row())
         return order
 
-    def _add_fill(self, session: Session, bot_id: int, order_id: int, side: str, price: float, ts_ms: int, *, closed_pnl: float | None) -> Fill:
+    def _add_fill(self, tx: Any, bot_id: int, order_id: int, side: str, price: float, ts_ms: int, *, closed_pnl: float | None) -> Fill:
         self.ctx.bot_id = bot_id
         fill = Fill(self.ctx, order_id=order_id, side=side, price=price, ts_ms=ts_ms, closed_pnl=closed_pnl)
-        fill.save(session)
+        tx.insert(fill.row())
         return fill
-
-    def _session(self) -> Session:
-        return Session(self.datastore, expire_on_commit=False)
 
 
 class ExecutorTrade:

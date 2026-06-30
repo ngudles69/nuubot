@@ -47,7 +47,7 @@ for config in configs:
   submit process-pool task
 
 Process-pool task:
-  create sweeprun DB and tables if needed
+  open sweep DB
   signaler = SignalerEmaCross(config)
   signals = signaler.ingest_many(bars)
 
@@ -89,7 +89,7 @@ for config in configs:
   submit process-pool task
 
 Process-pool task:
-  create sweeprun DB and tables if needed
+  open sweep DB
   runtime = Runtime(config)
   runtime.init()
   runtime.start()
@@ -119,9 +119,12 @@ Standard sweep uses the same backtest clock path as one-off backtest.
 Rerun/reset:
 
 ```text
-delete sweep_<id>.db or sweeprun_<id>.db
-submit process-pool task again
+keep sweep_<id>.db
+delete run-owned child/result rows
+submit process-pool tasks again
 ```
+
+Artifact removal is separate: drop/delete `sweep_<id>.db`.
 
 ## compare
 

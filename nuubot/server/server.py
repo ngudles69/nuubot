@@ -40,8 +40,8 @@ class Server:
         stime = time.perf_counter()
         log.info("Server STOPPING...")
         if self.sweepmgr is not None:
-            for finalizer in self.sweepmgr.finalizers.values():
-                finalizer.join()
+            for result_thread in list(self.sweepmgr.result_threads.values()):
+                result_thread.join()
         if self.nuubot is not None:
             self.nuubot.stop()
         etime = time.perf_counter()

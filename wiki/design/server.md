@@ -1,7 +1,7 @@
 ---
 title: server design
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, server, webgui, managers, workers, data]
@@ -27,10 +27,9 @@ Server process
   BotManager
   SweepManager
   Nuubot shared setup
-  ProcessPoolExecutor for sweeps
 
 SweepManager
-  submits sweeprun tasks to Server pool
+  creates a sweep-local ProcessPoolExecutor per running sweep
 
 CLI
   thin operator helper
@@ -55,7 +54,7 @@ Server owns:
 - `BotManager`.
 - `SweepManager`.
 - Server lifecycle: start, stop, status, health.
-- SweepManager worker-pool shutdown from the control side.
+- SweepManager result-thread shutdown from the control side.
 
 Server does not own bot trading logic or bot websocket feeds.
 
@@ -103,10 +102,10 @@ they must call Server/BotManager/SweepManager for app behavior.
 
 ## worker rule
 
-Sweep workers use `ProcessPoolExecutor`.
+Sweep workers use a sweep-local `ProcessPoolExecutor`.
 
 ```text
-Server -> SweepManager -> ProcessPoolExecutor sweeprun task
+Server -> SweepManager -> Sweep -> ProcessPoolExecutor sweeprun task
 ```
 
 Do not make Server a worker process.

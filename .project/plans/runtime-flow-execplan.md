@@ -217,13 +217,13 @@ Multi-interval rule:
 ## Proof Completed
 
 - Compile:
-  `rtk uv run python -m py_compile nuubot/core/config.py nuubot/core/models/mconfig.py nuubot/core/clock.py nuubot/core/market_data.py nuubot/core/runtime.py nuubot/core/sweep.py nuubot/core/risk.py nuubot/executor/tradebot.py nuubot/signaler/emacross.py nuubot/signaler/startnow.py`
+  `uv run python -m py_compile nuubot/core/config.py nuubot/core/models/mconfig.py nuubot/core/clock.py nuubot/core/market_data.py nuubot/core/runtime.py nuubot/core/sweep.py nuubot/core/risk.py nuubot/executor/tradebot.py nuubot/signaler/emacross.py nuubot/signaler/startnow.py`
 - Runtime flow check:
-  `rtk uv run python -m tests.test_runtime_flow`
+  `uv run python -m tests.test_runtime_flow`
 - Backtest smoke:
-  `rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml`
+  `uv run python -m nuubot.core.runtime -f workspace/templates/smoke-backtest.toml`
 - Papertest smoke:
-  `rtk uv run python -m nuubot.core.runtime -f workspace/templates/smoke-papertest.toml`
+  `uv run python -m nuubot.core.runtime -f workspace/templates/smoke-papertest.toml`
 
 ## Proof Still Worth Adding
 

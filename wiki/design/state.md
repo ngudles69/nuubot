@@ -19,7 +19,7 @@ DB files:
   meta.
 - one SQLite DB file per running bot instance.
 - one SQLite DB file per sweep.
-- one SQLite DB file per sweeprun when the run needs its own durable artifact.
+- sweepruns are rows inside their sweep DB.
 
 Naming examples:
 
@@ -30,7 +30,6 @@ workspace/db/testnet_bot_2.db
 workspace/db/simnet_bot_3.db
 workspace/db/backtest_bot_4.db
 workspace/db/sweep_1.db
-workspace/db/sweeprun_1.db
 ```
 
 Reset rule:
@@ -39,8 +38,8 @@ Reset rule:
   config/template again. That is effectively a new bot instance.
 - To clear one mode, delete that mode prefix, for example
   `workspace/db/simnet_bot_*.db`.
-- To rerun a sweep/sweeprun artifact, delete that instance DB file and restart
-  from config.
+- To rerun a sweep, keep the sweep DB/config row and reset run-owned rows.
+- To remove a sweep artifact, delete/drop that sweep DB file.
 - Do not migrate old bot/sweep runtime state.
 - Do not keep Postgres compatibility paths.
 
@@ -49,14 +48,13 @@ Existence rule:
 ```text
 workspace/db/<exec_network>_bot_<id>.db exists => bot exists
 workspace/db/sweep_<id>.db exists => sweep exists
-workspace/db/sweeprun_<id>.db exists => sweeprun exists
 ```
 
 Do not add central bot/sweep/sweeprun catalog tables unless file discovery is
 measured and proven insufficient. The file is the existence record, which avoids
 central catalog desync.
 
-Server owns `server.db`; see [Server DB](server-db.md).
+Nuubot setup owns `server.db`; see [Server DB](server-db.md).
 
 Server DB access rule:
 
@@ -97,15 +95,22 @@ State ownership:
 - `ExchangeMeta` writes to the server DB exchange meta table.
 - `CommandServer` handles bot-local command table polling.
 - `Bot` writes bot lifecycle/status/state rows to its bot DB.
-- `Datastore` does not save domain objects.
+- `Datastore` saves table rows only. It does not save domain objects or decide
+  bot lifecycle, order state, fill state, or PnL meaning.
 
 Persistence verbs:
 
 ```text
-insert_state()  # insert only; fail if row exists unexpectedly
-select_state()  # select/read
-update_state()  # update only; fail if row is missing unexpectedly
-delete_state()  # explicit delete only
+create(db)       # create DB file
+drop(db)         # delete DB file
+dbinit(db)       # create DB and missing tables
+insert(db, row)  # insert only; fail if row exists unexpectedly
+select(db, table, **where)
+get(db, table, **where)
+update(db, table, row)
+delete(db, table, **where)
+count(db, table, **where)
+upsert(db, row)  # only where insert-on-conflict behavior is intended
 ```
 
 Timestamp rule:

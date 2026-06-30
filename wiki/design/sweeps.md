@@ -118,15 +118,17 @@ Never silently swap `grid` to `grid_fast` because `mode = "fast"`.
 
 Persistence rule:
 
-- fast sweep: process-pool task writes final result to the sweep/sweeprun SQLite DB.
-- standard sweep: process-pool task writes final result to the sweep/sweeprun SQLite DB.
+- fast sweep: process-pool task writes final result to the sweep SQLite DB.
+- standard sweep: process-pool task writes final result to the sweep SQLite DB.
 - mainnet/testnet/simnet: bot runtime writes full persistence to its own SQLite
   DB.
 - one-off backtest bot: bot runtime writes full persistence to
   `backtest_bot_<id>.db`.
-- sweep-generated backtest/sweeprun: process-pool task writes final result to the sweep
-  DB and optional per-sweeprun DB.
-- rerun/reset: delete the sweep/sweeprun SQLite file and run again.
+- sweep-generated backtest/sweeprun: process-pool task writes final result to
+  the sweep DB.
+- rerun/reset: keep the sweep DB/config row, delete run-owned child rows, and
+  write a fresh result.
+- artifact removal: drop/delete the sweep DB file.
 
 ## objective
 
@@ -194,10 +196,8 @@ Sweep persistence:
 - `SweepRow.results_json` is the whole sweep result summary.
 - The sweep DB owns generated sweeprun config summary and final result
   summary.
-- A sweeprun DB, when created, owns that task's detailed evidence and
-  individual result.
 - Sweep existence is the sweep DB file.
-- Sweeprun existence is the sweeprun DB file when one is created.
+- Sweeprun existence is a `sweeprun` row inside the sweep DB.
 - Timing belongs under `results_json.timing`.
 - Do not add separate sweeprun timing columns such as `elapsed_ms`,
   `load_ms`, `indicator_ms`, or `execution_ms`.
@@ -214,23 +214,14 @@ Minimum result:
 
 Speed timing:
 
-- data load ms.
-- indicator build ms.
-- strategy run ms.
 - total ms.
 - bars processed.
 - bars per second.
 - configs per second.
 - worker count.
 
-Speed timing is mandatory for every sweep proof. It measures how fast the sweep
-runs, not market time. A one-year 1m run should show:
-
-- how long data loading took.
-- how long indicator preparation took.
-- how long strategy execution took.
-- total wall-clock time.
-- throughput in bars per second and configs per second.
+Speed timing is mandatory for every sweep proof. It measures total sweep wall
+time and throughput, not market time.
 
 ## component reuse
 
@@ -292,7 +283,8 @@ record sweep started_at
 generate permutations
 insert sweeprun summaries with sweeprun config and bot config
 submit process-pool tasks
-store each sweeprun result summary in the sweep DB, including timing
+store each sweeprun result summary in the sweep DB
+store sweep timing in sweep.results_json
 mark sweep complete/error
 ```
 
@@ -304,9 +296,8 @@ through every child.
 - `IdCtx` is a small dataclass for internal sweep child objects.
 - `IdCtx` carries only IDs and bot config needed by children:
   `sweep_id`, `sweeprun_id`, `bot_id`, `account_id`, and `bot_config`.
-- `datastore` means the DB target rows are written to. In sweeps this is the
-  SQLAlchemy engine for `workspace/db/sweep_<id>.db`.
-- `datastore` is passed separately from `IdCtx`.
+- `datastore` means the `Datastore` verb boundary used to write rows.
+- The sweep DB name/path is passed separately from `IdCtx`.
 - `Position`, `Order`, and `Fill` receive `IdCtx` and use fields directly.
 - Internal sweep code does not revalidate `IdCtx`; missing fields should fail
   loud.

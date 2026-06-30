@@ -17,7 +17,7 @@ Target proof is the direct runtime path until BotManager live process handling
 exists:
 
 ```bash
-rtk uv run python -m nuubot.bots.runtime -f workspace/templates/smoke-backtest.toml
+uv run python -m nuubot.bots.runtime -f workspace/templates/smoke-backtest.toml
 ```
 
 Expected:
@@ -36,7 +36,7 @@ Target proof is the direct runtime path until BotManager live process handling
 exists:
 
 ```bash
-rtk uv run python -m nuubot.bots.runtime -f workspace/templates/smoke-papertest.toml
+uv run python -m nuubot.bots.runtime -f workspace/templates/smoke-papertest.toml
 ```
 
 Expected:
@@ -58,7 +58,7 @@ python -m compileall -q nuubot tests
 ## runtime flow check
 
 ```bash
-rtk uv run python -m tests.test_runtime_flow
+uv run python -m tests.test_runtime_flow
 ```
 
 ## webgui screenshot check
@@ -72,18 +72,15 @@ workspace/results/webgui-sweeps.png
 workspace/results/webgui-sweeps-create.png
 ```
 
-## sweep fast check
+## sweep check
 
-Target proof is the SweepManager process-pool task path:
-
-```bash
-rtk uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-fast.toml
-```
-
-## sweep standard check
-
-Target proof is the SweepManager process-pool task path:
+Target proof is the SweepManager process-pool task path. On Windows, run it
+from the server/API or from a guarded proof script that calls
+`sweepmgr.run(sweep_id)`; do not launch process-pool sweep work from stdin or
+`python -c`.
 
 ```bash
-rtk uv run python -m nuubot.core.sweep -f workspace/templates/ema-1h-standard.toml
+uv run python -m nuubot.server
+curl.exe -X POST http://127.0.0.1:5001/api/sweeps/<sweep_id>/run
+curl.exe http://127.0.0.1:5001/api/sweeps/<sweep_id>/status
 ```

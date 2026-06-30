@@ -1,7 +1,7 @@
 ---
 title: server db design
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, server, sqlite, datastore, meta]
@@ -13,8 +13,8 @@ tags: [design, server, sqlite, datastore, meta]
 
 `server.db` is the only persistent shared DB.
 
-Server owns the server DB. Other components may use it only through short
-operations.
+Nuubot setup owns server DB initialization. Other components may use it only
+through short datastore operations.
 
 ## owns
 
@@ -48,7 +48,7 @@ server DB connection.
 
 ## exchange meta
 
-Server setup owns exchange meta refresh.
+Nuubot setup owns exchange meta refresh.
 
 ```text
 nuubot_setup()
@@ -82,4 +82,4 @@ Bot setup does not fetch exchange meta from the exchange.
   it runs.
 - Bot existence is `workspace/db/<exec_network>_bot_<id>.db`.
 - Sweep existence is `workspace/db/sweep_<id>.db`.
-- Sweeprun existence is `workspace/db/sweeprun_<id>.db`.
+- Sweeprun existence is a row inside its sweep DB.

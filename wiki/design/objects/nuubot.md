@@ -1,7 +1,7 @@
 ---
 title: nuubot object
 created: 2026-06-24
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, objects, infra]
@@ -19,7 +19,8 @@ bot loop.
 Allowed composed objects:
 
 - `Config`
-- server SQLite DB setup
+- `Datastore`
+- server DB name
 
 ## interfaces
 
@@ -32,18 +33,15 @@ External commands:
 Nuubot outputs:
 
 - `nuubot.config`
-- server DB path/helper
-- `nuubot.data_network`
-- `nuubot.exec_network`
+- `nuubot.datastore`
+- `nuubot.server_db`
 
 ## contracts
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `setup(path)` | Workspace config path. | Ready Nuubot. | Loads Config, creates/opens the server SQLite DB, refreshes exchange meta if missing or older than 24 hours, and returns the infra owner. Fails loud if setup fails. |
+| `setup(path)` | Workspace config path. | Ready Nuubot. | Loads Config, creates the datastore with the configured DB root, creates `server.db` tables, refreshes exchange meta if missing or older than 24 hours, and returns the infra owner. Fails loud if setup fails. |
 | `nuubot_setup(path)` | Workspace config path. | Ready Nuubot. | Thin module-level call to `Nuubot.setup()` for simple program entrypoints. |
-| `data_network` | Ready Nuubot. | Data network value. | Derived from `nuubot.config.general.mode`. Not a config-file field. |
-| `exec_network` | Ready Nuubot. | Execution network value. | Derived from `nuubot.config.general.mode`. Not a config-file field. |
 | `stop()` | Ready Nuubot. | Stopped infra. | Stops owned infrastructure resources. |
 
 ## processing
@@ -51,11 +49,11 @@ Nuubot outputs:
 Internal functions:
 
 - load workspace config.
+- create `Datastore` with `workspace/db` as the DB root.
 - create the persistent server SQLite DB if missing.
 - create server tables if missing.
 - if `meta` is missing or older than 24 hours, fetch all Hyperliquid
-  meta using adapted `nuutrader6` logic and write it to the server DB.
-- derive runtime-facing networks from config mode.
+  meta and write it to the server DB.
 - expose infra handles.
 - stop infra handles.
 
@@ -66,6 +64,6 @@ Internal functions:
 ## notes
 
 - Nuubot is not the trading runtime.
-- Runtime may use `nuubot.config` and short server DB helpers, but the loop and
+- Runtime may use `nuubot.config` and datastore verbs, but the loop and
   local DB handle stay with the bot actor/task.
 - Do not add service registries or generic dependency containers.

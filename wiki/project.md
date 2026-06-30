@@ -46,9 +46,9 @@ easy to understand, easy to run, and hard to overcomplicate.
 
 ## commands
 
-- Prefix repo commands with `rtk`.
-- Search with `rtk rg -n ...`.
-- Find files with `rtk rg --files`.
+- Use repo commands directly.
+- Search with `rg -n ...`.
+- Find files with `rg --files`.
 - Use `apply_patch` for manual file edits.
 
 ## knowledge layout

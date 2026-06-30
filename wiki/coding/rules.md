@@ -82,9 +82,9 @@ Use `wiki/logging.md`.
 
 ## commands
 
-- Prefix repo commands with `rtk`.
-- Search with `rtk rg -n ...`.
-- Find files with `rtk rg --files`.
+- Use repo commands directly.
+- Search with `rg -n ...`.
+- Find files with `rg --files`.
 - Use PowerShell only when there is no practical Unix-style alternative.
 - Use `apply_patch` for manual file edits.
 

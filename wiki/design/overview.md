@@ -1,7 +1,7 @@
 ---
 title: design overview
 created: 2026-06-20
-updated: 2026-06-29
+updated: 2026-06-30
 type: wiki
 status: active
 tags: [design, overview]
@@ -42,8 +42,8 @@ without recreating the over-built shape of `nuutrader6`.
 - Keep simulator first-class for simnet/backtest work.
 - Keep executors free-form and simple.
 - Keep datastore infrastructure separate from domain persistence operations.
-- Keep each running bot/sweep/sweeprun as a standalone unit with its own SQLite
-  file.
+- Keep each running bot and sweep as a standalone unit with its own SQLite
+  file. Sweepruns are rows inside a sweep DB.
 - Keep one persistent server SQLite DB for seq numbers, server state, and
   exchange meta.
 - Keep Server as the admin/API/control process that owns managers.
@@ -82,8 +82,10 @@ without recreating the over-built shape of `nuutrader6`.
   bot_id)` once.
 - `bot_setup()` creates/opens the per-bot SQLite DB and loads the bot row,
   accounts, positions, orders, fills, and free-form state.
-- Each bot runtime, sweep task, and sweeprun task initializes its own SQLite DB
-  file and tables if missing.
+- Each bot runtime owns one bot SQLite DB file.
+- SweepManager creates the sweep SQLite DB file and tables before workers
+  start.
+- Sweeprun tasks open the existing sweep DB and update their own rows.
 - Per-bot DB tables do not repeat `bot_id`; the SQLite file is the bot
   boundary.
 - Server DB access is open connection, read/write, close.
@@ -96,10 +98,17 @@ without recreating the over-built shape of `nuutrader6`.
   result.
 - Datastore operations belong to the domain objects that own the meaning.
 - Use explicit persistence verbs:
-  - `insert_state()`
-  - `select_state()`
-  - `update_state()`
-  - `delete_state()`
+  - `create(db)`
+  - `drop(db)`
+  - `dbinit(db)`
+  - `insert(db, row)`
+  - `get(db, table, **where)`
+  - `select(db, table, **where)`
+  - `update(db, table, row)`
+  - `delete(db, table, **where)`
+  - `count(db, table, **where)`
+  - `upsert(db, row)`
+  - `tx(db)`
 - Do not use upsert for trading evidence.
 - `blackbot.py` belongs in `.research/**` as reference/scaffold material, not
   as production runtime code.
@@ -149,11 +158,12 @@ without recreating the over-built shape of `nuutrader6`.
 Sweep -> Sweeprun -> Bot config -> Runtime/Bot
 Program entrypoint -> Nuubot -> Config + Server DB
 Server/WebGUI entrypoint -> nuubot_setup -> BotManager
-Server -> SweepManager -> ProcessPoolExecutor sweeprun task
+Server -> SweepManager -> Sweep -> ProcessPoolExecutor sweeprun task
 API route -> Manager/helper function -> result
 Cli -> Manager/helper function -> result
 Bot runtime -> bot SQLite DB
-Sweep task -> sweep SQLite DB
+Sweep -> sweep SQLite DB
+Sweeprun task -> sweep SQLite DB row
 Notebook -> BotRuntime -> bot SQLite DB
 Runtime/Bot -> short server DB check/meta read
 Runtime/Bot -> bot_setup -> Bot row + Accounts + Positions + Orders + Fills + State
@@ -211,7 +221,8 @@ CommandServer(nuubot, bot_id, runtime_callbacks)
 - Notebook can start direct BotRuntime.
 - Server/SweepManager can start process-pool sweep tasks.
 - Server SQLite DB is created if missing by `nuubot_setup()`.
-- Bot/sweep/sweeprun SQLite DB files are created if missing by actor/task init.
+- Bot DB files are created by bot setup.
+- Sweep DB files are created by SweepManager before worker launch.
 - Bot DB file existence proves the bot exists.
 - Redacted config snapshot is stored with the bot row.
 - Runtime writes status and heartbeat evidence to its bot DB.
