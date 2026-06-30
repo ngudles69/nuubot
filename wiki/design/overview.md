@@ -113,8 +113,8 @@ without recreating the over-built shape of `nuutrader6`.
   - `nuubot/account`
   - `nuubot/data`
   - `nuubot/datastore`
-  - `nuubot/signaler`
-  - `nuubot/executor`
+  - `nuubot/signalers`
+  - `nuubot/bots/executors`
   - `nuubot/sweep`
 - Current implementation still uses `nuubot/core` until the package move is
   performed.

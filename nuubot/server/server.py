@@ -1,12 +1,51 @@
 from __future__ import annotations
 
-import argparse
 from copy import deepcopy
 import logging
-import os
+import time
+from typing import TYPE_CHECKING
 
 import uvicorn
 from uvicorn.config import LOGGING_CONFIG
+
+from nuubot import nuubot_setup
+from nuubot.core.logger import logger
+from nuubot.server.botmgr import botmgr_setup
+from nuubot.server.sweepmgr import sweepmgr_setup
+from nuubot.webgui.app import WebGui
+
+log = logger()
+
+if TYPE_CHECKING:
+    from nuubot.nuubot import Nuubot
+    from nuubot.server.botmgr import BotManager
+    from nuubot.server.sweepmgr import SweepManager
+
+
+class Server:
+    def __init__(self) -> None:
+        self.nuubot: "Nuubot | None" = None
+        self.botmgr: "BotManager | None" = None
+        self.sweepmgr: "SweepManager | None" = None
+        self.webgui: "WebGui | None" = None
+
+    def init(self) -> "Server":
+        self.nuubot = nuubot_setup()
+        self.botmgr = botmgr_setup(self.nuubot)
+        self.sweepmgr = sweepmgr_setup(self.nuubot)
+        self.webgui = WebGui(self).init()
+        return self
+
+    def stop(self) -> None:
+        stime = time.perf_counter()
+        log.info("Server STOPPING...")
+        if self.sweepmgr is not None:
+            for finalizer in self.sweepmgr.finalizers.values():
+                finalizer.join()
+        if self.nuubot is not None:
+            self.nuubot.stop()
+        etime = time.perf_counter()
+        log.info("Server STOPPED in %.3f secs.", etime - stime)
 
 
 class UvicornMessageFilter(logging.Filter):
@@ -29,26 +68,28 @@ class UvicornMessageFilter(logging.Filter):
 
 
 def main() -> None:
-    args = parse_args()
-    host = os.getenv("NUUBOT_HOST", "127.0.0.1")
-    port = int(os.getenv("NUUBOT_PORT", "5001"))
-    print("INFO:     Server startup in progress.", flush=True)
+    # log start
+    stime = time.perf_counter()
+    log.info("Server STARTING...")
+
+    # setup server
+    server = Server().init()
+    config = server.nuubot.config.server
+
+    # log started
+    etime = time.perf_counter()
+    log.info("Server STARTED in %.3f secs.", etime - stime)
+
+    # starting server
     uvicorn.run(
-        "nuubot.server.webgui:app",
-        host=host,
-        port=port,
-        reload=args.reload,
-        reload_dirs=["nuubot"] if args.reload else None,
-        reload_includes=["*.py"] if args.reload else None,
+        server.webgui.app,
+        host=config.host,
+        port=config.port,
+        reload=config.reload,
+        reload_dirs=["nuubot"] if config.reload else None,
+        reload_includes=["*.py"] if config.reload else None,
         log_config=log_config(),
     )
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--reload", dest="reload", action="store_true", default=False)
-    parser.add_argument("--no-reload", dest="reload", action="store_false")
-    return parser.parse_args()
 
 
 def log_config() -> dict:

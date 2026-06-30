@@ -1,3 +1,3 @@
-from nuubot.webgui.app import app
+from nuubot.webgui.app import WebGui
 
-__all__ = ["app"]
+__all__ = ["WebGui"]

@@ -4,9 +4,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from nuubot.core.dtypes import Bar, MarketSnapshot, Signal
+from nuubot.core.format import format_ms
 from nuubot.core.models.mconfig import BotrunConfig
-from nuubot.signaler.emacross import SignalerEmaCross
-from nuubot.signaler.startnow import SignalerStartNow
+from nuubot.signalers.emacross import SignalerEmaCross
+from nuubot.signalers.startnow import SignalerStartNow
 
 
 @dataclass
@@ -32,7 +33,7 @@ class Signaler:
     async def start(self, data: Any, now_ms: int) -> None:
         for signaler in self.items:
             history = await data.history(signaler.interval, signaler.required_bars)
-            self.log.info(f"signaler_seed name={signaler.__class__.__name__} bars={len(history)}", now=now_ms)
+            self.log.info(f"signaler_seed name={signaler.__class__.__name__} bars={len(history)} ts_now: {format_ms(now_ms)}")
             await signaler.start(history)
             self._mark_closed_history(signaler.interval, history)
 
@@ -53,13 +54,13 @@ class Signaler:
         exit_signal = next(((bar, signal) for bar, signal in results if signal.exit), None)
         if exit_signal is not None:
             bar, signal = exit_signal
-            self.log.info(f"signal_exit reason={signal.reason}", now=bar.ts_ms)
+            self.log.info(f"signal_exit reason={signal.reason} ts_now: {format_ms(bar.ts_ms)}")
             return SignalerDecision(bar, signal, "exit")
 
         entry_signal = next(((bar, signal) for bar, signal in results if signal.entry), None)
         if entry_signal is not None:
             bar, signal = entry_signal
-            self.log.info(f"signal_entry reason={signal.reason}", now=bar.ts_ms)
+            self.log.info(f"signal_entry reason={signal.reason} ts_now: {format_ms(bar.ts_ms)}")
             return SignalerDecision(bar, signal, "entry")
 
         bar, signal = results[0]

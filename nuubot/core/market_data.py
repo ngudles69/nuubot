@@ -14,11 +14,12 @@ import websockets
 
 from nuubot.core.dtypes import Bar, MarketSnapshot, ReplayBatch, ReplayEvent
 from nuubot.core.dtypes import Mode
-from nuubot.core.logger import format_bar, format_bbo, format_ms, logger
+from nuubot.core.format import format_bar, format_bbo, format_ms
+from nuubot.core.logger import logger
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.telemetry import Telemetry
 
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 
 
 class FileDataEngine:
@@ -160,13 +161,15 @@ class WsDataEngine:
                             self._ready.set()
                     bbo_ts = self.latest_bbo.get("time")
                     ts_text = format_ms(int(bbo_ts)) if isinstance(bbo_ts, int) else str(bbo_ts)
-                    self.log.debug(f"papertest bbo_received ts_bbo: {ts_text} data={format_bbo(self.latest_bbo)}", now=wall_ms())
+                    now_ms = wall_ms()
+                    self.log.debug(f"papertest bbo_received ts_bbo: {ts_text} data={format_bbo(self.latest_bbo)} ts_now: {format_ms(now_ms)}")
                 elif channel == "candle":
                     interval = hyperliquid_interval(message, self.config.market.interval)
                     bar = hyperliquid_bar(message, interval, wall_ms())
                     self.bars[interval] = bar
                     self.telemetry.candles_received += 1
-                    self.log.debug(f"papertest bar_received tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)}", now=wall_ms())
+                    now_ms = wall_ms()
+                    self.log.debug(f"papertest bar_received tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)} ts_now: {format_ms(now_ms)}")
 
     def _history(self, interval: str, limit: int) -> list[Bar]:
         if limit <= 0:

@@ -19,14 +19,17 @@ places outgoing orders through Account.
 Code layout target:
 
 ```text
-nuubot/executor/
-  executor.py
+nuubot/bots/
+  runtime.py
+  executors/
   ghbot/
     ghbot.py
     grid.py
     hedge.py
-  tradebot.py
-  dcabot.py
+  tradebot/
+    tradebot.py
+  dcabot/
+    dcabot.py
 ```
 
 Do not add deeper folders until a real executor needs them.

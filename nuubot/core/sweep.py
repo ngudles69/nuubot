@@ -12,11 +12,11 @@ from nuubot.core.config import load_sweep_config
 from nuubot.core.logger import logger
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.market_data import load_binance_bars, required
-from nuubot.core.runtime import Runtime
-from nuubot.tradebot.tradebot import ExecutorTrade, TradeConfig
-from nuubot.signaler.emacross import SignalerEmaCross
+from nuubot.bots.runtime import Runtime
+from nuubot.bots.executors.tradebot.tradebot import ExecutorTrade, TradeConfig
+from nuubot.signalers.emacross import SignalerEmaCross
 
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 
 
 def expand_values(value: Any) -> list[float]:

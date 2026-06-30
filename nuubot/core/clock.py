@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from nuubot.core.logger import logger
 
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 
 TimerCallback = Callable[["TimeEvent"], Awaitable[None]]
 

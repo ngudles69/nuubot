@@ -7,14 +7,12 @@ from fasthtml.common import *
 from monsterui.all import Card, CardTitle, Toast, ToastHT, ToastVT
 from starlette.responses import RedirectResponse
 
-from nuubot.server import sweepmgr as sweepmgr_api
-from nuubot.server.state import ensure_server_state
 from nuubot.webgui.layout import shell
 
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "workspace" / "templates" / "ema-1h-fast.toml"
 
 
-def register(rt) -> None:
+def register(rt, server) -> None:
     @rt("/sweeps/create", methods="get")
     def get(error: str = ""):
         return create_page(default_template(), error)
@@ -26,18 +24,16 @@ def register(rt) -> None:
         if not template:
             return create_page("", "template is required")
         try:
-            ensure_server_state(request.app)
-            data = sweepmgr_api.create_sweep(request.app.state.sweepmgr, template)
-            request.session["toast"] = (f"Sweep ID {data['sweep_id']} created", "alert-success")
+            sweep_id = server.sweepmgr.create(template)
+            request.session["toast"] = (f"Sweep ID {sweep_id} created", "alert-success")
             return RedirectResponse("/sweeps", status_code=303)
         except Exception as exc:
             return create_page(template, str(exc))
 
     @rt("/sweeps/{sweep_id}/edit", methods="get")
     def get(request, sweep_id: int, error: str = ""):
-        ensure_server_state(request.app)
-        data = sweepmgr_api.load_sweep(request.app.state.sweepmgr, sweep_id)
-        template = json.dumps(data["config"], indent=2, sort_keys=True)
+        config = server.sweepmgr.load(sweep_id)
+        template = json.dumps(config, indent=2, sort_keys=True)
         return create_page(template, error, title=f"Edit Sweep {sweep_id}", action=f"/sweeps/{sweep_id}/edit", primary="Save Sweep", rerun=True)
 
     @rt("/sweeps/{sweep_id}/edit", methods="post")
@@ -47,10 +43,9 @@ def register(rt) -> None:
         if not template:
             return create_page("", "template is required", title=f"Edit Sweep {sweep_id}", action=f"/sweeps/{sweep_id}/edit", primary="Save Sweep", rerun=True)
         try:
-            ensure_server_state(request.app)
-            sweepmgr_api.update_sweep(request.app.state.sweepmgr, sweep_id, template)
+            server.sweepmgr.update(sweep_id, template)
             if form.get("run"):
-                sweepmgr_api.run_sweep(request.app.state.sweepmgr, sweep_id)
+                server.sweepmgr.run(sweep_id)
                 request.session["toast"] = (f"Sweep ID {sweep_id} saved and submitted", "alert-success")
             else:
                 request.session["toast"] = (f"Sweep ID {sweep_id} saved", "alert-success")

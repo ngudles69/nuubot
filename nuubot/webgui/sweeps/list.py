@@ -4,16 +4,13 @@ from fasthtml.common import *
 from monsterui.all import Card, CardTitle, Toast, ToastHT, ToastVT
 from starlette.responses import RedirectResponse
 
-from nuubot.server import sweepmgr as sweepmgr_api
-from nuubot.server.state import ensure_server_state
 from nuubot.webgui.layout import shell
 
 
-def register(rt) -> None:
+def register(rt, server) -> None:
     @rt("/sweeps", methods="get")
     def get(request):
-        ensure_server_state(request.app)
-        rows = list(reversed(sweepmgr_api.list_sweeps(request.app.state.sweepmgr)["sweeps"]))
+        rows = list(reversed(server.sweepmgr.list()["sweeps"]))
         flash = request.session.pop("toast", None)
         return shell(
             Section(
@@ -29,8 +26,7 @@ def register(rt) -> None:
 
     @rt("/sweeps/table", methods="get")
     def get(request):
-        ensure_server_state(request.app)
-        rows = list(reversed(sweepmgr_api.list_sweeps(request.app.state.sweepmgr)["sweeps"]))
+        rows = list(reversed(server.sweepmgr.list()["sweeps"]))
         return sweeps_table(rows)
 
     @rt("/sweeps/{sweep_id}/run", methods="post")
@@ -39,16 +35,15 @@ def register(rt) -> None:
             request.session["toast"] = ("sweep_id must be positive", "alert-error")
             return RedirectResponse("/sweeps", status_code=303)
         try:
-            ensure_server_state(request.app)
-            sweepmgr_api.run_sweep(request.app.state.sweepmgr, sweep_id)
+            server.sweepmgr.run(sweep_id)
             if request.headers.get("hx-request") == "true":
-                rows = list(reversed(sweepmgr_api.list_sweeps(request.app.state.sweepmgr)["sweeps"]))
+                rows = list(reversed(server.sweepmgr.list()["sweeps"]))
                 return sweeps_table(rows)
             request.session["toast"] = (f"Sweep ID {sweep_id} submitted", "alert-success")
             return RedirectResponse("/sweeps", status_code=303)
         except Exception as exc:
             if request.headers.get("hx-request") == "true":
-                rows = list(reversed(sweepmgr_api.list_sweeps(request.app.state.sweepmgr)["sweeps"]))
+                rows = list(reversed(server.sweepmgr.list()["sweeps"]))
                 return sweeps_table(rows, {sweep_id: str(exc)})
             request.session["toast"] = (str(exc), "alert-error")
             return RedirectResponse("/sweeps", status_code=303)
@@ -117,8 +112,8 @@ def sweep_is_active(row: dict) -> bool:
     )
 
 
-def load_row(sweepmgr, sweep_id: int) -> dict:
-    for row in sweepmgr_api.list_sweeps(sweepmgr)["sweeps"]:
+def load_row(server, sweep_id: int) -> dict:
+    for row in server.sweepmgr.list()["sweeps"]:
         if row["sweep_id"] == sweep_id:
             return row
     raise RuntimeError(f"sweep row missing: {sweep_id}")

@@ -11,15 +11,16 @@ from nuubot import nuubot_setup
 from nuubot.core.clock import Clock, ReplayClock, TimeEvent
 from nuubot.core.config import load_botrun_config
 from nuubot.core.dtypes import Bar, BotRunResult, MarketSnapshot, Mode
-from nuubot.core.logger import format_bar, format_bbo, format_ms, logger
+from nuubot.core.format import format_bar, format_bbo, format_ms
+from nuubot.core.logger import logger
 from nuubot.core.market_data import FileDataEngine, WsDataEngine
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.risk import Risk
 from nuubot.core.telemetry import Telemetry
-from nuubot.tradebot.tradebot import ExecutorTrade, TradeConfig
-from nuubot.signaler import Signaler
+from nuubot.bots.executors.tradebot.tradebot import ExecutorTrade, TradeConfig
+from nuubot.signalers import Signaler
 
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 
 RUNTIME_TIMER = "runtime"
 
@@ -43,14 +44,14 @@ class Runtime:
         self.running = False
 
     async def init(self) -> None:
-        self.log.debug("runtime init", now=self.clock.now_ms())
+        self.log.debug(f"runtime init ts_now: {format_ms(self.clock.now_ms())}")
         await self.data.init()
         await self.signaler.init()
         await self.risk.init()
         await self.executor.init()
 
     async def start(self) -> None:
-        self.log.debug("runtime start", now=self.clock.now_ms())
+        self.log.debug(f"runtime start ts_now: {format_ms(self.clock.now_ms())}")
         self.running = True
         await self.data.start()
         await self.signaler.start(self.data, self.clock.now_ms())
@@ -66,8 +67,8 @@ class Runtime:
 
         await self.executor.stop(self.last_bar)
         self.result = self.executor.result(self.bars_processed)
-        self.log.debug("results:\n%s", json.dumps(asdict(self.result), indent=2, sort_keys=True), now=self.clock.now_ms())
-        self.log.debug("telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
+        self.log.debug("results ts_now: %s\n%s", format_ms(self.clock.now_ms()), json.dumps(asdict(self.result), indent=2, sort_keys=True))
+        self.log.debug("telemetry ts_now: %s\n%s", format_ms(self.clock.now_ms()), json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True))
 
     async def loop_backtest(self) -> None:
         if not isinstance(self.data, FileDataEngine) or not isinstance(self.clock, ReplayClock):
@@ -103,7 +104,7 @@ class Runtime:
         self.last_bar = self.signaler.last_bar
 
         risk_score = await self.risk.score()
-        self.log.debug(f"risk_score={risk_score}", now=self.clock.now_ms())
+        self.log.debug(f"risk_score={risk_score} ts_now: {format_ms(self.clock.now_ms())}")
         if await self.risk.exit():
             self.exit("risk")
             return
@@ -204,27 +205,25 @@ class Runtime:
         for interval, bar in sorted(snapshot.bars.items()):
             self.log.debug(
                 f"{self.mode} bar bot_id={self.config.runtime.bot_id} loop={self.loop_count} "
-                f"tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)}",
-                now=now_ms,
+                f"tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)} ts_now: {format_ms(now_ms)}"
             )
         if snapshot.bbo is not None:
             bbo_ts = snapshot.bbo.get("time")
             ts_text = format_ms(int(bbo_ts)) if isinstance(bbo_ts, int) else str(bbo_ts)
             self.log.debug(
                 f"{self.mode} bbo bot_id={self.config.runtime.bot_id} loop={self.loop_count} "
-                f"ts_bbo: {ts_text} data={format_bbo(snapshot.bbo)}",
-                now=now_ms,
+                f"ts_bbo: {ts_text} data={format_bbo(snapshot.bbo)} ts_now: {format_ms(now_ms)}"
             )
         return snapshot
 
     def exit(self, reason: str) -> None:
-        self.log.debug(f"runtime_exit reason={reason}", now=self.clock.now_ms())
+        self.log.debug(f"runtime_exit reason={reason} ts_now: {format_ms(self.clock.now_ms())}")
         self.running = False
         if RUNTIME_TIMER in self.clock.timers:
             self.clock.cancel_timer(RUNTIME_TIMER)
 
     async def stop(self) -> None:
-        self.log.debug("runtime stop", now=self.clock.now_ms())
+        self.log.debug(f"runtime stop ts_now: {format_ms(self.clock.now_ms())}")
         try:
             self.exit("stop")
             await self.signaler.stop()
@@ -235,7 +234,7 @@ class Runtime:
 
     def log_telemetry(self) -> None:
         if self.mode != Mode.BACKTEST:
-            self.log.info(f"{self.mode} telemetry:\n%s", json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True), now=self.clock.now_ms())
+            self.log.info("%s telemetry ts_now: %s\n%s", self.mode, format_ms(self.clock.now_ms()), json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True))
 
     def exit_if_max_loop(self) -> None:
         if self.config.runtime.max_loop != 0 and self.loop_count >= self.config.runtime.max_loop:
@@ -266,7 +265,7 @@ def create_executor(config: BotrunConfig, run_log: Any) -> ExecutorTrade:
 
 
 def bot_log_path(config: BotrunConfig) -> str:
-    return f"workspace/logs/bot_{runtime_mode(config)}_{config.runtime.bot_id}.log"
+    return f"bot_{runtime_mode(config)}_{config.runtime.bot_id}.log"
 
 
 def runtime_mode(config: BotrunConfig) -> Mode:

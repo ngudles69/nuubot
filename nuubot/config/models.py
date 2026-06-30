@@ -17,6 +17,14 @@ class GeneralConfig(BaseModel):
     mode: Mode
 
 
+class ServerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=5001, ge=1, le=65535)
+    reload: bool = False
+
+
 class PathsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -88,6 +96,7 @@ class AppConfig(BaseModel):
 
     workspace: WorkspaceConfig
     general: GeneralConfig
+    server: ServerConfig = Field(default_factory=ServerConfig)
     data_network: DataNetwork = DataNetwork.MAINNET
     exec_network: ExecNetwork = ExecNetwork.MAINNET
     paths: PathsConfig

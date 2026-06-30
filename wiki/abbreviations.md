@@ -37,6 +37,8 @@ when a short name is clearer than the full word.
 | `cfg` | config | local variable only when obvious |
 | `db` | database | file/path/local variable |
 | `tbl` | table | local variable only when obvious |
+| `stime` | start time | local timing variable |
+| `etime` | end time | local timing variable |
 | `ctx` / `Ctx` | context | local variable / class suffix |
 | `IdCtx` | id context | small dataclass carrying IDs/config |
 

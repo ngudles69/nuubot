@@ -22,7 +22,7 @@ Default module-level logging:
 
 ```python
 from nuubot.core.logger import logger
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 ```
 
 Every non-definition module uses module-level logging by default.
@@ -34,15 +34,18 @@ Do not embed loggers inside normal objects by default:
 Specific owner objects like bots, sweepruns, and sweeps use class/object level
 logs when they need their own output file.
 
+`logger()` defaults to `workspace/logs/server.log`. `logger("runtime.log")`
+goes to `workspace/logs/runtime.log`.
+
 Default module logs go to `workspace/logs/runtime.log`. This catches normal
 runtime/module activity.
 
 Module-level logging is permanent.
 
-Modules are general by default. Keep them on `workspace/logs/runtime.log`.
+Modules are general by default. Keep them on `logger("runtime.log")`.
 
 For specific debugging, the module-level logger may temporarily point to its
-own log file, for example `workspace/logs/risk.log`. Change the file target
+own log file, for example `logger("risk.log")`. Change the file target
 back to the general runtime log when that debugging pass is done, unless the
 design explicitly says the module needs permanent separate logging.
 
@@ -65,7 +68,7 @@ Standards:
 - Pad log level to five characters inside brackets.
 - Log the message on the timestamp line.
 - Use `ts_now: YYYY-MM-DD HH:MM:SS.mmm` instead of raw `now_ms`.
-- Bot-owned runtime logs go to `workspace/logs/bot_<network>_<bot_id>.log`.
+- Bot-owned runtime logs use `logger(f"bot_<network>_<bot_id>.log")`.
 - Logs may display local time for readability. Stored datastore timestamps and
   exchange timestamps remain UTC.
 

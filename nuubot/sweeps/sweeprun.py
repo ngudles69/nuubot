@@ -11,13 +11,14 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from nuubot.core.context import IdCtx
 from nuubot.core.dtypes import Bar, Signal
-from nuubot.core.logger import format_bar, format_ms, logger
+from nuubot.core.format import format_bar, format_ms
+from nuubot.core.logger import LOG_DIR, logger
 from nuubot.core.market_data import date_ms, load_binance_bars
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.datastore import BotrunRow, SweeprunRow
-from nuubot.signaler.emacross import SignalerEmaCross
+from nuubot.signalers.emacross import SignalerEmaCross
 from nuubot.sweeps.models import SweeprunConfig
-from nuubot.tradebot.tradebot import ExecutorTrade, TradeConfig, TradeLedger
+from nuubot.bots.executors.tradebot.tradebot import ExecutorTrade, TradeConfig, TradeLedger
 
 
 @dataclass
@@ -155,8 +156,8 @@ class Sweeprun:
             account_id="default",
             bot_config=self.config,
         )
-        self.log_path = Path(self.db_path).parent.parent / "logs" / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
-        self.run_log = logger(str(self.log_path))
+        self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
+        self.run_log = logger(self.log_path.name)
         self.bars = load_binance_bars(self.config)
         self.signaler = SignalerEmaCross(self.config.signalers[0])
         if self.config.executor.name != "tradebot":

@@ -4,6 +4,11 @@ root = "."
 [general]
 mode = "simnet"
 
+[server]
+host = "127.0.0.1"
+port = 5001
+reload = false
+
 [paths]
 config_dir = "workspace/config"
 data_dir = "workspace/data"

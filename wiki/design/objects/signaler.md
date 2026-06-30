@@ -20,7 +20,7 @@ standard trading signal.
 Code layout target:
 
 ```text
-nuubot/signaler/
+nuubot/signalers/
   signaler.py
   emacross/
     emacross.py

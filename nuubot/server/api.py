@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from starlette.responses import JSONResponse
 
-from nuubot.server import sweepmgr as sweepmgr_api
-from nuubot.server.state import ensure_server_state
 
-
-def register_api(rt) -> None:
+def register_api(rt, server) -> None:
     @rt("/ping")
     def get():
         return "pong"
@@ -18,8 +15,7 @@ def register_api(rt) -> None:
     @rt("/api/sweeps", methods="get")
     def get(request):
         try:
-            ensure_server_state(request.app)
-            data = sweepmgr_api.list_sweeps(request.app.state.sweepmgr)
+            data = server.sweepmgr.list()
             return ok(data)
         except Exception as exc:
             return error(str(exc), 400)
@@ -30,18 +26,16 @@ def register_api(rt) -> None:
         if not template:
             return error("template is required", 400)
         try:
-            ensure_server_state(request.app)
-            data = sweepmgr_api.create_sweep(request.app.state.sweepmgr, template)
-            return ok(data, 201)
+            sweep_id = server.sweepmgr.create(template)
+            return ok({"sweep_id": sweep_id}, 201)
         except Exception as exc:
             return error(str(exc), 400)
 
     @rt("/api/sweeps/{sweep_id}", methods="get")
     def get(request, sweep_id: int):
         try:
-            ensure_server_state(request.app)
-            data = sweepmgr_api.load_sweep(request.app.state.sweepmgr, sweep_id)
-            return ok(data)
+            config = server.sweepmgr.load(sweep_id)
+            return ok({"sweep_id": sweep_id, "config": config})
         except Exception as exc:
             return error(str(exc), 400)
 
@@ -50,8 +44,7 @@ def register_api(rt) -> None:
         if sweep_id <= 0:
             return error("sweep_id must be positive", 400)
         try:
-            ensure_server_state(request.app)
-            data = sweepmgr_api.run_sweep(request.app.state.sweepmgr, sweep_id)
+            data = server.sweepmgr.run(sweep_id)
             return ok(data, 202)
         except Exception as exc:
             return error(str(exc), 400)
@@ -61,8 +54,7 @@ def register_api(rt) -> None:
         if sweep_id <= 0:
             return error("sweep_id must be positive", 400)
         try:
-            ensure_server_state(request.app)
-            data = sweepmgr_api.status_sweep(request.app.state.sweepmgr, sweep_id)
+            data = server.sweepmgr.status(sweep_id)
             return ok(data)
         except Exception as exc:
             return error(str(exc), 400)

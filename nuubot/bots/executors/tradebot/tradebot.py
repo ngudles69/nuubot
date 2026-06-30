@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 
 from nuubot.core.context import IdCtx
 from nuubot.core.dtypes import Bar, BotRunResult, Signal
+from nuubot.core.format import format_ms
 from nuubot.core.logger import logger
 from nuubot.datastore import Fill, Order, Position
 from nuubot.datastore.schemas import AccountRow, BotrunRow, PositionRow
 
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 
 
 @dataclass
@@ -214,7 +215,7 @@ class ExecutorTrade:
         self.active = True
         if self.ledger is not None:
             self.position_id = self.ledger.open_position(side, price, bar.ts_ms)
-        self.log.info(f"trade_open cycle={self.cycle_id} side={side} price={price}", now=bar.ts_ms)
+        self.log.info(f"trade_open cycle={self.cycle_id} side={side} price={price} ts_now: {format_ms(bar.ts_ms)}")
 
     def _close(self, price: float, change_pct: float, reason: str, now_ms: int) -> None:
         if self.ledger is not None:
@@ -229,7 +230,7 @@ class ExecutorTrade:
         self.side = ""
         self.entry_price = 0.0
         self.position_id = None
-        self.log.info(f"trade_close cycle={self.cycle_id} reason={reason} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f}", now=now_ms)
+        self.log.info(f"trade_close cycle={self.cycle_id} reason={reason} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f} ts_now: {format_ms(now_ms)}")
 
     def _can_enter(self) -> bool:
         return self.config.max_cycles == 0 or self.cycle_count < self.config.max_cycles

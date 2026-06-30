@@ -3,7 +3,7 @@ from __future__ import annotations
 from nuubot.core.logger import logger
 from nuubot.core.models.mconfig import RiskConfig
 
-log = logger("workspace/logs/runtime.log")
+log = logger("runtime.log")
 
 
 class Risk:
