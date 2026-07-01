@@ -1,29 +1,27 @@
 # handoff
 
-Last updated: 2026-07-01
+Last updated: 2026-07-02
 
 ## focus
 
-Sweep template/runtime/WebGUI work in `D:\rust\nuubot`.
+Server startup handling in `D:\rust\nuubot`.
 
 ## current status
 
-- New bot/sweep template layout and grouped sweep expansion are implemented.
-- Sweep runs use the real server/API path and ProcessPoolExecutor workers.
-- Runtime and sweeprun results include telemetry timing.
-- Sweep list shows `Win/Lose`, `Profit Factor`, and `Expected Value`.
-- Sweep actions are horizontal and right-justified.
-- Sweep archive/unarchive moves DB files between:
-  - `workspace/db/sweep_<id>.db`
-  - `workspace/db/archived/sweep_<id>.db`
-- Bot archive/unarchive uses the same file-move pattern for
-  `<network>_bot_<id>.db`.
-- Archive/unarchive does not rewrite DB rows or migrate data.
+- Last known committed baseline before this handoff: `41160e3 Implement sweep templates and archive controls`.
+- `server.sh` now starts `uv run python -m nuubot.server` in the background,
+  redirects server stdout/stderr to `workspace/logs/server-start.*.log`, and
+  polls `/status` before reporting readiness.
+- `AGENTS.md` now records the manual server-start rule for agents:
+  run `./server.sh`, wait 2 seconds, test `/status`, then retry every 1 second
+  up to 10 seconds before diagnosing startup failure.
+- The agent command backend is PowerShell. Invoking Git Bash from the backend is
+  a non-interactive subprocess, not the user's live Git Bash terminal.
+- Scratch scripts used during diagnosis were removed.
 
 ## active server
 
-- Server was restarted normally during proof.
-- Last known listener: `127.0.0.1:5001`.
+- Last known listener: `127.0.0.1:5001`, PID `22548`.
 - Recheck the PID before stopping or restarting.
 
 ## active agents
@@ -34,15 +32,31 @@ None.
 
 None known.
 
+## files changed
+
+- `AGENTS.md`
+- `HANDOFF.md`
+- `server.sh`
+
 ## proof run
 
-- `python -m compileall -q nuubot tests`
-- `python -m tests.test_archive`
-- `python -m tests.test_sweep_metrics`
-- `python -m tests.test_sweep_run_guards`
-- Live WebGUI proof for `/sweeps` with Playwright screenshot:
-  `workspace/results/webgui-sweeps-ev.png`
+- `./server.sh` was used to start the server.
+- After waiting, `/status` returned:
+  `{"status":"ok","response":{"type":"server_status","data":{"status":"running"}}}`.
+- Port check showed `127.0.0.1:5001` listening with PID `22548`.
+
+## proof not run
+
+- Full test suite was not rerun for this startup/docs-only follow-up.
+- Live interactive Git Bash output cannot be observed from the agent's
+  PowerShell-backed command tool.
+
+## decisions made
+
+- Keep `server.sh` as the operator entry point for starting the server.
+- Agents must not immediately spam `/status` after starting the server.
+- If startup is not detected within 10 seconds, inspect logs and process state.
 
 ## next action
 
-Continue sweep result analytics and chart/display work.
+Continue from the server startup commit.

@@ -42,6 +42,10 @@ Rules for agents in `D:\rust\nuubot`.
 ## Commands
 
 - Use repo commands directly.
+- When asked to start the server, run `./server.sh`, wait 2 seconds, then test
+  `/status`. If it is not up, wait 1 second and try again. Keep trying until
+  10 seconds total. Only then assume startup failed and inspect logs/process
+  state. Do not start the server and immediately spam `/status`.
 - Use PowerShell only when there is no practical Unix-style alternative.
 - Search with `rg -n ...`.
 - Find files with `rg --files`.
