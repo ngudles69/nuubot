@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-06-30
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -27,20 +27,22 @@ good sweeprun -> extract bot config -> run backtest/simnet/mainnet.
 Config hierarchy:
 
 ```text
-SweepConfig
+GroupSweepConfig
   sweep settings
-  params/ranges
-  generates SweeprunConfig
+  data.* sets
+  signalers.* sets
+  executors.* sets
+  risk values
+  generates concrete SweeprunConfig rows
 
 SweeprunConfig
-  period/window settings
-  bot: BotConfig
+  meta
+  botrun: BotrunConfig
 
-BotConfig
+BotrunConfig
   runtime
   market
   backtest
-  exchange
   signalers
   executor
   risk
@@ -306,21 +308,17 @@ through every child.
 - In the current sweep path, `botrun_id` is written with the same value as
   `bot_id`.
 
-## parameter shape
+## template shape
 
-```toml
-[params]
-stop_loss = { start = 1.0, stop = 3.0, step = 0.5 }
-take_profit = [1.0, 1.2, 1.7, 2.3, 5.0]
-period = [
-  { start = 2024-01-01, stop = 2024-12-31 },
-  { start = 2025-01-01, stop = 2025-12-31 },
-]
-```
+Current author-facing sweep template rules live in `wiki/templates-sweeps.md`.
 
 Rules:
 
-- `{ start, stop, step }` means range.
-- `[...]` means exact values.
-- A parameter must use exactly one form.
-- `period` uses exact start/stop date tables.
+- `data.*` defines grouped data sets.
+- `signalers.*` defines grouped signaler sets.
+- `executors.*` defines grouped executor sets.
+- Values inside one set expand internally.
+- Expanded data sets cross with expanded signaler sets, executor sets, and
+  expanded risk values.
+- Generated sweepruns are concrete scalar configs and are validated before
+  records are created.

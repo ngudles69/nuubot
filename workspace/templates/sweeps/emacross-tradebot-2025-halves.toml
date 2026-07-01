@@ -1,0 +1,38 @@
+[sweep]
+mode = "fast"
+start_bot_id = 200
+workers = 8
+
+[[data.01]]
+[data.01.market]
+symbol = ["BTCUSDT", "SOLUSDT"]
+interval = "1h"
+
+[data.01.sweeprun]
+start = "2025-01-01"
+stop = "2025-06-30T23:59:59"
+
+[[data.02]]
+[data.02.market]
+symbol = ["BTCUSDT", "SOLUSDT"]
+interval = "1h"
+
+[data.02.sweeprun]
+start = "2025-07-01"
+stop = "2025-12-31T23:59:59"
+
+[[signalers.01]]
+[[signalers.01.items]]
+name = "emacross"
+interval = "1h"
+params = { fast = { start = 5, stop = 11, step = 3 }, slow = [20, 30, 50] }
+
+[[executors.01]]
+[executors.01.executor]
+name = "tradebot"
+take_profit_pct = 0.0
+stop_loss_pct = 0.0
+max_cycles = 0
+
+[risk]
+score = 1

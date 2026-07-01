@@ -1,0 +1,17 @@
+[market]
+symbol = "BTCUSDT"
+interval = "1m"
+
+[[signalers]]
+name = "emacross"
+interval = "1m"
+params = { fast = 9, slow = 21 }
+
+[executor]
+name = "tradebot"
+take_profit_pct = 0.0
+stop_loss_pct = 0.0
+max_cycles = 0
+
+[risk]
+score = 1

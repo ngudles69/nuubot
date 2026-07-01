@@ -1,7 +1,7 @@
 ---
 title: roadmap
 created: 2026-06-20
-updated: 2026-06-20
+updated: 2026-07-01
 type: project
 status: active
 tags: [roadmap]
@@ -127,5 +127,74 @@ This file is the project plan.
   - [x] 9.1 Implement a basic EMA-cross data/indicator sweep loop.
   - [ ] 9.2 Use EMA-cross sweep as the template for future sweeps.
   - [x] 9.3 Prove sweep runs through SweepManager and process-pool task path.
+
+### [o] 10. Template system
+
+  - [ ] 10.1 Add boundary-validation rules to `AGENTS.md` and
+    `wiki/coding/rules.md`: validate at file/DB/component init boundaries,
+    then trust initialized runtime objects.
+  - [ ] 10.2 Update `wiki/templates*.md` with the MT5-style template model:
+    loose sweep authoring, grouped data/signalers/executors sets, concrete
+    generated sweeprun configs, and component-owned param validation.
+  - [ ] 10.3 Create active `workspace/templates/bots/**` and
+    `workspace/templates/sweeps/**` examples; keep
+    `workspace/templates/sweeps/old/**` reference-only.
+  - [ ] 10.4 Implement sweep-template parsing with label validation for
+    `data.*`, `signalers.*`, and `executors.*`; labels are metadata and must
+    stay simple for names like
+    `template/data=01/signalers=01/executors=01/run=001`.
+  - [ ] 10.5 Expand grouped set permutations into concrete scalar sweeprun
+    bot configs: expanded data sets x signaler sets x executor sets x
+    non-grouped sweep values.
+  - [ ] 10.6 Validate every generated sweeprun with Pydantic before records are
+    created; reject malformed TOML, missing minimum fields, bad dates, bad
+    types, and duplicate/conflicting final paths.
+  - [ ] 10.7 Revalidate stored `config_json` when each sweeprun starts, then run
+    component init checks: signalers, executor, risk, data coverage, then
+    execute.
+  - [ ] 10.8 Create the BTCUSDT/SOLUSDT 2025-halves EMA-cross sweep template:
+    2 symbols x 2 periods x fast `[5, 8, 11]` x slow `[20, 30, 50]` = 36
+    sweepruns.
+  - [ ] 10.9 Run the sweep through the real SweepManager/process-pool path,
+    fix bugs, and prove all 36 sweepruns complete or fail with specific
+    boundary/component/data errors.
+  - [ ] 10.10 Run adversarial audits before and after implementation; accept
+    correctness/proof findings and reject trivial or design-opposing findings
+    with written disposition.
+
+### [ ] 11. Strategy variations
+
+  - [ ] 11.1 Add more coded signalers with fail-fast param validation.
+  - [ ] 11.2 Add more coded executors with fail-fast param validation.
+  - [ ] 11.3 Add practical template variations only after the template system
+    proof is stable.
+
+### [ ] 12. Results and charts
+
+  - [ ] 12.1 Improve sweep result calculations after template execution is
+    stable.
+  - [ ] 12.2 Display sweep and sweeprun results in the WebGUI.
+  - [ ] 12.3 Add chart display for selected results and generated bot configs.
+
+### [ ] 13. Profitability search
+
+  - [ ] 13.1 Use the stable template/sweep system to search for profitable
+    strategy candidates.
+  - [ ] 13.2 Export strong parameter sets as concrete TOML bot/sweeprun base
+    files with scalar values only.
+
+### [ ] 14. Stable bot path
+
+  - [ ] 14.1 Build a stable workable bot from proven templates, using
+    `D:\rust\nuutrader6` as the behavior reference.
+  - [ ] 14.2 Prove the bot path from simulator to testnet to mainnet.
+  - [ ] 14.3 Run long-duration stability checks for days, including memory
+    behavior and restart handling.
+
+### [ ] 15. Monitoring and stability
+
+  - [ ] 15.1 Improve monitoring after the stable bot path exists.
+  - [ ] 15.2 Improve operational stability based on long-run failures and
+    evidence.
 
 ## project / tooling

@@ -127,7 +127,7 @@ class RiskConfig(BaseModel):
 
 
 class BotrunConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     runtime: RuntimeConfig
     market: MarketConfig

@@ -1,7 +1,7 @@
 ---
 title: botmanager design
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [design, server, botmanager, bots]
@@ -23,6 +23,7 @@ implement bot behavior themselves.
 - managed bot start/stop/freeze/status when lifecycle code exists.
 - bot lifecycle validation before manager actions.
 - bot DB file discovery.
+- bot archive/unarchive by DB file move.
 
 ## does not own
 
@@ -48,6 +49,8 @@ External functions:
 - `freeze_bot(bot_id)`
 - `ping_bot(bot_id)`
 - `status_bot(bot_id)`
+- `archive(bot_id)`
+- `unarchive(bot_id)`
 
 ## contracts
 
@@ -65,6 +68,8 @@ External functions:
 | `freeze_bot(bot_id)` | Running bot id. | Freeze accepted/result. | Sends the managed bot command through the bot-local command path. Deferred until lifecycle command exists. |
 | `ping_bot(bot_id)` | Bot id. | Liveness result. | Checks heartbeat freshness. |
 | `status_bot(bot_id)` | Bot id. | Status result. | Combines DB file existence, heartbeat, and bot DB status. |
+| `archive(bot_id)` | Inactive bot id. | None. | Moves `workspace/db/<network>_bot_<id>.db` to `workspace/db/archived/<network>_bot_<id>.db`. Does not rewrite data. |
+| `unarchive(bot_id)` | Archived bot id. | None. | Moves `workspace/db/archived/<network>_bot_<id>.db` back to `workspace/db/<network>_bot_<id>.db`. |
 
 ## notes
 
@@ -72,6 +77,8 @@ External functions:
 - Notebook workflows may pass loaded templates directly.
 - Live/sim/operator creation may pass file paths.
 - Bot existence is the bot DB file.
+- Archived bots live under `workspace/db/archived/` so normal bot listing does
+  not scan or display them.
 - Do not add a central bot catalog table unless file discovery is measured and
   proven insufficient.
 - BotManager keeps managed process control simple until lifecycle code proves

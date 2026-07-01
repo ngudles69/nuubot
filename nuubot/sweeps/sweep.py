@@ -2,16 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
-import itertools
 import json
 import signal
 import threading
 import time
 from typing import Any
 
-from nuubot.core.sweep import expand_values, sweep_bot_data
 from nuubot.datastore import AccountRow, BotrunRow, Datastore, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
-from nuubot.sweeps.models import SweepConfig
+from nuubot.sweeps.template import GroupSweepConfig, expand_sweep_template
 from nuubot.sweeps.sweeprun import run_sweeprun
 
 MAX_SWEEP_WORKERS = 8
@@ -32,14 +30,14 @@ class Sweep:
 
             # Validate the config before changing existing sweep rows.
             db = dbname(self.sweep_id, "sweep")
-            config = SweepConfig.model_validate(self._load_config())
+            config = GroupSweepConfig.model_validate(self._load_config())
             workers = self._workers(config)
-            botrun_configs = self._botrun_configs(config)
-            if not botrun_configs:
+            generated_configs = expand_sweep_template(config.model_dump(mode="json"))
+            if not generated_configs:
                 raise RuntimeError("sweep produced no sweepruns")
 
             # Build a fresh queued run set from the sweep config.
-            sweeprun_ids = self._reset(botrun_configs)
+            sweeprun_ids = self._reset(generated_configs)
 
             executor = None
             try:
@@ -89,24 +87,7 @@ class Sweep:
             "progress": f"{done_count}/{total_count}",
         }
 
-    def _botrun_configs(self, config: SweepConfig) -> list[dict[str, Any]]:
-        # Expand the parameter grid into normal bot configs.
-        sweep = config.sweep
-        params = config.params
-        mode = str(sweep.get("mode", ""))
-        start_bot_id = int(sweep.get("start_bot_id", 0))
-        if mode not in {"fast", "standard"}:
-            raise RuntimeError(f"unsupported sweep mode: {mode}")
-        grid = itertools.product(
-            expand_values(params["ema_fast"]),
-            expand_values(params["ema_slow"]),
-        )
-        rows = []
-        for index, (fast, slow) in enumerate(grid):
-            rows.append(sweep_bot_data(config.botrun, start_bot_id + index, int(fast), int(slow)))
-        return rows
-
-    def _reset(self, botrun_configs: list[dict[str, Any]]) -> list[int]:
+    def _reset(self, generated_configs: list[dict[str, Any]]) -> list[int]:
         # Replace old child rows before workers start.
         tx = self.datastore.tx(dbname(self.sweep_id, "sweep"))
         tx.start()
@@ -114,7 +95,7 @@ class Sweep:
             sweep = tx.get(SweepRow, sweep_id=self.sweep_id)
             for row_class in (FillRow, OrderRow, PositionRow, EventRow, AccountRow, BotrunRow, SweeprunRow):
                 tx.delete(row_class)
-            sweeprun_ids = self._create(tx, botrun_configs)
+            sweeprun_ids = self._create(tx, generated_configs)
             sweep.status = "running"
             sweep.results_json = "{}"
             sweep.sweeprun_count = len(sweeprun_ids)
@@ -128,15 +109,16 @@ class Sweep:
             tx.close()
         return sweeprun_ids
 
-    def _create(self, tx: Any, botrun_configs: list[dict[str, Any]]) -> list[int]:
+    def _create(self, tx: Any, generated_configs: list[dict[str, Any]]) -> list[int]:
         # Store each generated config as one queued sweeprun.
         sweeprun_ids = []
-        for index, botrun_config in enumerate(botrun_configs):
+        for index, generated_config in enumerate(generated_configs):
+            botrun_config = generated_config["botrun"]
             sweeprun = tx.insert(
                 SweeprunRow(
                     sweep_id=self.sweep_id,
                     sweeprun_index=index,
-                    config_json=json.dumps({"botrun": botrun_config}, sort_keys=True, separators=(",", ":")),
+                    config_json=json.dumps(generated_config, sort_keys=True, separators=(",", ":")),
                     results_json="{}",
                     status="queued",
                 )
@@ -155,7 +137,7 @@ class Sweep:
             sweeprun_ids.append(int(sweeprun.sweeprun_id))
         return sweeprun_ids
 
-    def _workers(self, config: SweepConfig) -> int:
+    def _workers(self, config: GroupSweepConfig) -> int:
         workers = int(config.sweep.get("workers", 4))
         if workers <= 0:
             raise RuntimeError(f"sweep.workers must be positive: {workers}")
@@ -246,7 +228,10 @@ def sweep_results(datastore: Datastore, db: str, sweep_id: int, futures: list[tu
             status = "failed" if counts["failed"] else "complete"
             if done < total:
                 status = "running"
-            bars = sum(int(json.loads(row.results_json or "{}").get("bars") or 0) for row in tx.select(SweeprunRow))
+            bars = 0
+            for row in tx.select(SweeprunRow):
+                row_results = json.loads(row.results_json or "{}")
+                bars += int(row_results.get("telemetry", {}).get("bars") or row_results.get("bars") or 0)
             total_ms = int((time.perf_counter() - started) * 1000)
             total_seconds = total_ms / 1000
             timing = {
@@ -256,7 +241,7 @@ def sweep_results(datastore: Datastore, db: str, sweep_id: int, futures: list[tu
                 "configs_per_second": round(total / total_seconds, 2) if total_seconds else 0.0,
                 "worker_count": workers,
             }
-            result = {"sweep_id": sweep_id, "status": status, "done_count": done, "total_count": total, "timing": timing, **counts}
+            result = {"sweep_id": sweep_id, "status": status, "done_count": done, "total_count": total, "timing": timing, "telemetry": {"timing": timing}, **counts}
 
             # Save the sweep result summary to the parent sweep row.
             sweep = tx.get(SweepRow, sweep_id=sweep_id)

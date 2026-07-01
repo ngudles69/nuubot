@@ -1,7 +1,7 @@
 ---
 title: coding rules
 created: 2026-06-20
-updated: 2026-06-29
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [coding, rules]
@@ -50,6 +50,9 @@ Write simple, clear code.
 - If a destructive action is ambiguous, ask first. Do not infer drops, deletes,
   truncates, resets, or session kills from unclear wording.
 - Do not hide bad input, bad output, or source errors.
+- Validate at boundaries: file parse, DB load, generated config, and component
+  init. After init succeeds, trust initialized runtime objects and do not repeat
+  defensive shape checks in hot loops.
 - `from __future__ import annotations` is allowed.
 - Add no helper, wrapper, adapter, registry, fallback, cache, or abstraction
   unless the current path needs it.

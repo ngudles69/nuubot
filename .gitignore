@@ -162,6 +162,7 @@ ss/*
 workspace/cache/
 workspace/data/*
 !workspace/data/.gitkeep
+!workspace/data/AGENTS.md
 workspace/db/
 workspace/logs/
 workspace/tmp/

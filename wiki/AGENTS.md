@@ -26,6 +26,9 @@ Rules for files under `wiki/**`.
   - `abbreviations.md`: approved short names and ID naming.
   - `logging.md`: logging format and cascading error path.
   - `notebooks.md`: notebook workflow, extraction markers, charting rules.
+  - `templates.md`: template layout and doc map.
+  - `templates-bots.md`: bot template authoring rules.
+  - `templates-sweeps.md`: sweep template authoring rules.
   - `testing.md`: compile check and smoke test commands.
   - `repomap.md`: repo map.
 2. Design:

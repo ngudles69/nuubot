@@ -45,8 +45,15 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 .navitem:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
 .main { padding: 22px; }
 .panel { max-width: 1120px; }
+.sweeps-panel { max-width: none; }
 .panel h1 { font-size: 24px; margin: 0; font-weight: 700; }
 .panel p { margin: 0 0 18px; color: hsl(var(--muted-foreground)); }
+.table-wrap { overflow-x: auto; }
+.result-json {
+  max-height: 70vh;
+  overflow: auto;
+  font: 12px ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
 .template-field {
   width: min(100%, 980px);
   min-height: 520px;
@@ -54,6 +61,9 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
   font: 13px ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
 th.actions, td.actions { text-align: right; white-space: nowrap; }
+th.center, td.center { text-align: center; }
+.action-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.action-row form { display: inline; margin: 0; }
 .submit-status { display: none; }
 .htmx-request .run-status { display: none; }
 .htmx-request .submit-status { display: inline; }

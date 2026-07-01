@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any, Literal
 
 from nuubot.core.dtypes import Bar, MarketSnapshot, Signal
@@ -25,16 +26,23 @@ class Signaler:
         self.last_bar: Bar | None = None
         self.new_bars = 0
         self._eligible: list[tuple[Any, Bar]] = []
+        self.timing: dict[str, int] = {}
 
     async def init(self) -> None:
         for signaler in self.items:
+            t0 = time.perf_counter()
             await signaler.init()
+            self.add_timing("item_init", time.perf_counter() - t0)
 
     async def start(self, data: Any, now_ms: int) -> None:
         for signaler in self.items:
+            t0 = time.perf_counter()
             history = await data.history(signaler.interval, signaler.required_bars)
+            self.add_timing("data_load", time.perf_counter() - t0)
             self.log.info(f"signaler_seed name={signaler.__class__.__name__} bars={len(history)} ts_now: {format_ms(now_ms)}")
+            t0 = time.perf_counter()
             await signaler.start(history)
+            self.add_timing("item_start", time.perf_counter() - t0)
             self._mark_closed_history(signaler.interval, history)
 
     def observe(self, snapshot: MarketSnapshot) -> bool:
@@ -109,6 +117,10 @@ class Signaler:
         self.last_bar_ms_by_interval[interval] = max(self.last_bar_ms_by_interval.get(interval, 0), last.ts_ms)
         if self.last_bar is None or last.ts_ms >= self.last_bar.ts_ms:
             self.last_bar = last
+
+    def add_timing(self, key: str, seconds: float) -> None:
+        key = f"{key}_ms"
+        self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
 
 
 def create_signaler(config: Any) -> Any:

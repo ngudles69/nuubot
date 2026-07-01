@@ -57,8 +57,8 @@ def update_waits_for_run_lock_and_refuses_running_sweep() -> None:
         datastore = Datastore(root)
         db = dbname(1, "sweep")
         datastore.dbinit(db)
-        old_config = sweep_config(workers=4, ema_fast=[6])
-        new_config = sweep_config(workers=4, ema_fast=[9])
+        old_config = sweep_config(workers=4, fast={"start": 6, "stop": 6, "step": 1})
+        new_config = sweep_config(workers=4, fast={"start": 9, "stop": 9, "step": 1})
         datastore.insert(
             db,
             SweepRow(
@@ -103,7 +103,7 @@ def update_waits_for_run_lock_and_refuses_running_sweep() -> None:
 
         sweep = datastore.get(db, SweepRow, sweep_id=1)
         assert sweep.status == "running"
-        assert json.loads(sweep.config_json)["params"]["ema_fast"] == [6]
+        assert json.loads(sweep.config_json)["signalers"]["01"][0]["items"][0]["params"]["fast"] == {"start": 6, "stop": 6, "step": 1}
         assert datastore.count(db, SweeprunRow) == 1
 
 
@@ -163,54 +163,44 @@ def _update_sweep(manager: SweepManager, config: dict, outcome: dict[str, str]) 
         outcome["error"] = str(exc)
 
 
-def sweep_config(*, workers: int, ema_fast: list[int] | None = None) -> dict:
+def sweep_config(*, workers: int, fast: dict[str, int] | None = None) -> dict:
     config = {
         "sweep": {
             "mode": "fast",
             "start_bot_id": 200,
             "workers": workers,
-        },
-        "runtime": {
-            "mode": "sweep",
-            "max_loop": 0,
-            "loop_seconds": 1.0,
-        },
-        "market": {
-            "symbol": "BTCUSDT",
-            "interval": "1h",
-        },
-        "backtest": {
-            "start": "2025-01-01",
-            "stop": "2025-03-31T23:59:59",
             "data_dir": "workspace/data/binance/raw/spot/monthly/klines",
         },
-        "signalers": [
-            {
+        "data": {
+            "01": [
+                {
+                    "market": {"symbol": "BTCUSDT", "interval": "1h"},
+                    "sweeprun": {"start": "2025-01-01", "stop": "2025-03-31T23:59:59"},
+                }
+            ],
+        },
+        "signalers": {
+            "01": [{
+                "items": [{
                 "name": "emacross",
                 "interval": "1h",
                 "params": {
-                    "fast": 9,
+                    "fast": {"start": 6, "stop": 6, "step": 1},
                     "slow": 21,
                 },
-            }
-        ],
-        "executor": {
-            "name": "tradebot",
-            "take_profit_pct": 0.0,
-            "stop_loss_pct": 0.0,
-            "max_cycles": 0,
+                }],
+            }],
+        },
+        "executors": {
+            "01": [{"executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0}}],
         },
         "risk": {
             "score": 1,
         },
-        "params": {
-            "ema_fast": [6],
-            "ema_slow": [21],
-        },
     }
-    if ema_fast is not None:
+    if fast is not None:
         config = deepcopy(config)
-        config["params"]["ema_fast"] = ema_fast
+        config["signalers"]["01"][0]["items"][0]["params"]["fast"] = fast
     return config
 
 

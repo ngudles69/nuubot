@@ -1,7 +1,7 @@
 ---
 title: webgui design
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [design, server, webgui, fasthtml]
@@ -75,8 +75,15 @@ Repo-root helpers:
 ```text
 GET /        dashboard
 GET /bots    bot control surface
+GET/POST /bots/{bot_id}/archive
+GET/POST /bots/{bot_id}/unarchive
 GET /sweeps  sweep list
+GET /sweeps/archived  archived sweep list
 GET /sweeps/create  create sweep form
+GET /sweeps/{sweep_id}/results  sweep results JSON
+GET /sweeps/archived/{sweep_id}/results  archived sweep results JSON
+GET/POST /sweeps/{sweep_id}/archive
+GET/POST /sweeps/{sweep_id}/unarchive
 GET /server  server status surface
 GET /user    user settings placeholder
 GET /ping    plain liveness

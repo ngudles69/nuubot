@@ -1,7 +1,7 @@
 ---
 title: server api design
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [design, server, api, routes]
@@ -48,6 +48,7 @@ shape lessons, not for wholesale copying.
 - Own API return shape: HTTP status, JSON envelope, and API error shape.
 - Return manager/helper output inside that API shape.
 - Map known validation/domain errors to clear API errors.
+- All future API routes must use the standard response envelope below.
 
 API owns:
 
@@ -107,6 +108,137 @@ Routes must not:
 
 Use boring resource/action names.
 
+## response envelope
+
+All API routes return:
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "sweep_results",
+    "id": 27,
+    "data": {}
+  }
+}
+```
+
+Errors return:
+
+```json
+{
+  "status": "err",
+  "response": {
+    "type": "sweep_results",
+    "id": 27,
+    "data": {
+      "error": {
+        "code": "sweep_results_failed",
+        "message": "sweep DB missing: sweep_27.db"
+      }
+    }
+  }
+}
+```
+
+Rules:
+
+- `status` is `ok` or `err`.
+- `response.type` is the API operation that was called.
+- `response.id` is the resource id when the route has one.
+- `response.data` is the payload.
+- `response.data.error` carries boundary errors.
+- Action/domain failures that are valid responses may use `status = "ok"` and
+  put failure details inside `response.data`.
+
+Current response types:
+
+```text
+GET  /ping                         -> ping
+GET  /status                       -> server_status
+GET  /api/sweeps                   -> sweeps_list
+POST /api/sweeps                   -> sweep_create
+GET  /api/sweeps/{sweep_id}        -> sweep_get
+POST /api/sweeps/{sweep_id}/run    -> sweep_run
+GET  /api/sweeps/{sweep_id}/status -> sweep_status
+GET  /api/sweeps/{sweep_id}/results -> sweep_results
+GET  /api/sweeps/{sweep_id}/telemetry -> sweep_telemetry
+```
+
+Examples:
+
+Successful status response:
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "sweep_status",
+    "id": 27,
+    "data": {
+      "sweep_id": 27,
+      "status": "complete",
+      "progress": "36/36"
+    }
+  }
+}
+```
+
+Successful action response:
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "sweep_run",
+    "id": 27,
+    "data": {
+      "sweep_id": 27,
+      "status": "running",
+      "progress": "0/36"
+    }
+  }
+}
+```
+
+Valid request with domain failure:
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "sweep_run",
+    "id": 27,
+    "data": {
+      "sweep_id": 27,
+      "status": "failed",
+      "error": {
+        "code": "validation_failed",
+        "message": "sweep.workers must be <= 8: 16"
+      }
+    }
+  }
+}
+```
+
+Boundary error:
+
+```json
+{
+  "status": "err",
+  "response": {
+    "type": "sweep_results",
+    "id": 999999,
+    "data": {
+      "error": {
+        "code": "sweep_results_failed",
+        "message": "sweep DB missing: sweep_999999.db"
+      }
+    }
+  }
+}
+```
+
 First route shape:
 
 ```text
@@ -158,19 +290,19 @@ POST /api/sweeps
   route rejects empty body
   route does not parse TOML
   route calls SweepManager.create(template)
-  route returns { ok, data: { sweep_id } }
+  route returns type=sweep_create with data={ sweep_id }
 ```
 
 ```text
 POST /api/sweeps/{sweep_id}/run
   route validates sweep_id is a positive int
   route calls SweepManager.run(sweep_id)
-  route returns { ok, data: status }
+  route returns type=sweep_run with data=status
 ```
 
 ```text
 GET /api/sweeps/{sweep_id}/status
   route validates sweep_id is a positive int
   route calls SweepManager.status(sweep_id)
-  route returns { ok, data: status }
+  route returns type=sweep_status with data=status
 ```

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,8 @@ class Runtime:
         self.mode = runtime_mode(config)
         self.log = logger(bot_log_path(config))
         self.clock = create_clock(config)
+        self.timing: dict[str, int] = {}
+        self.results: dict[str, Any] = {}
         self.telemetry = Telemetry()
         self.data = create_data(config, self.telemetry, self.log)
         self.signaler = Signaler(config, self.log)
@@ -45,21 +48,36 @@ class Runtime:
 
     async def init(self) -> None:
         self.log.debug(f"runtime init ts_now: {format_ms(self.clock.now_ms())}")
+        started = time.perf_counter()
+        t0 = time.perf_counter()
         await self.data.init()
+        self.add_timing("init_data_init", time.perf_counter() - t0)
+        t0 = time.perf_counter()
         await self.signaler.init()
+        self.add_timing("init_signaler_init", time.perf_counter() - t0)
+        self.merge_timing("init_signaler_init", self.signaler.timing)
+        self.signaler.timing.clear()
         await self.risk.init()
         await self.executor.init()
+        self.add_timing("init", time.perf_counter() - started)
 
     async def start(self) -> None:
         self.log.debug(f"runtime start ts_now: {format_ms(self.clock.now_ms())}")
+        started = time.perf_counter()
         self.running = True
         await self.data.start()
+        t0 = time.perf_counter()
         await self.signaler.start(self.data, self.clock.now_ms())
+        self.add_timing("start_signaler_start", time.perf_counter() - t0)
+        self.merge_timing("start_signaler_start", self.signaler.timing)
+        self.signaler.timing.clear()
         self.clock.set_timer(RUNTIME_TIMER, self.config.runtime.loop_seconds, self.loop_once)
         await self.risk.start()
         await self.executor.start()
+        self.add_timing("start", time.perf_counter() - started)
 
     async def loop(self) -> None:
+        started = time.perf_counter()
         if self.mode in {Mode.BACKTEST, Mode.SWEEP}:
             await self.loop_backtest()
         else:
@@ -67,8 +85,17 @@ class Runtime:
 
         await self.executor.stop(self.last_bar)
         self.result = self.executor.result(self.bars_processed)
+        self.add_timing("loop", time.perf_counter() - started)
+        self.results = {
+            "performance": asdict(self.result),
+            "telemetry": {
+                **self.telemetry.__dict__,
+                "timing": self.timing,
+            },
+        }
         self.log.debug("results ts_now: %s\n%s", format_ms(self.clock.now_ms()), json.dumps(asdict(self.result), indent=2, sort_keys=True))
         self.log.debug("telemetry ts_now: %s\n%s", format_ms(self.clock.now_ms()), json.dumps(self.telemetry.__dict__, indent=2, sort_keys=True))
+        self.log.info("runtime_results ts_now: %s\n%s", format_ms(self.clock.now_ms()), json.dumps(self.results, indent=2, sort_keys=True))
 
     async def loop_backtest(self) -> None:
         if not isinstance(self.data, FileDataEngine) or not isinstance(self.clock, ReplayClock):
@@ -93,8 +120,10 @@ class Runtime:
         self.loop_count += 1
         self.telemetry.loops += 1
 
+        started = time.perf_counter()
         snapshot = await self.market_snapshot(self.clock.now_ms())
         if not self.signaler.observe(snapshot):
+            self.add_timing("loop_loop_once", time.perf_counter() - started)
             self.log_telemetry()
             self.exit_if_max_loop()
             return
@@ -106,25 +135,33 @@ class Runtime:
         risk_score = await self.risk.score()
         self.log.debug(f"risk_score={risk_score} ts_now: {format_ms(self.clock.now_ms())}")
         if await self.risk.exit():
+            self.add_timing("loop_loop_once", time.perf_counter() - started)
             self.exit("risk")
             return
 
+        t0 = time.perf_counter()
         decision = await self.signaler.loop_once()
+        self.add_timing("loop_loop_once_signaler_loop", time.perf_counter() - t0)
         if decision.event == "exit":
             self.telemetry.signal_exits += 1
         elif decision.event == "entry":
             self.telemetry.signal_entries += 1
 
         if await self.signaler.exit():
+            self.add_timing("loop_loop_once", time.perf_counter() - started)
             self.exit("signaler")
             return
 
+        t0 = time.perf_counter()
         await self.executor.loop_once(decision.bar, decision.signal)
+        self.add_timing("loop_loop_once_executor_loop", time.perf_counter() - t0)
         if await self.executor.exit():
+            self.add_timing("loop_loop_once", time.perf_counter() - started)
             self.exit("max_cycles")
             return
         self.log_telemetry()
         self.exit_if_max_loop()
+        self.add_timing("loop_loop_once", time.perf_counter() - started)
 
     async def loop_once_target(self, event: TimeEvent) -> None:
         _ = event
@@ -224,12 +261,14 @@ class Runtime:
 
     async def stop(self) -> None:
         self.log.debug(f"runtime stop ts_now: {format_ms(self.clock.now_ms())}")
+        started = time.perf_counter()
         try:
             self.exit("stop")
             await self.signaler.stop()
             await self.risk.stop()
             await self.data.stop()
         finally:
+            self.add_timing("stop", time.perf_counter() - started)
             self.nuubot.stop()
 
     def log_telemetry(self) -> None:
@@ -239,6 +278,15 @@ class Runtime:
     def exit_if_max_loop(self) -> None:
         if self.config.runtime.max_loop != 0 and self.loop_count >= self.config.runtime.max_loop:
             self.exit("max_loop")
+
+    def add_timing(self, key: str, seconds: float) -> None:
+        key = f"{key}_ms"
+        self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
+
+    def merge_timing(self, prefix: str, timing: dict[str, int]) -> None:
+        for key, value in timing.items():
+            merged_key = f"{prefix}_{key.removesuffix('_ms')}_ms"
+            self.timing[merged_key] = self.timing.get(merged_key, 0) + value
 
 
 def create_data(config: BotrunConfig, telemetry: Telemetry, run_log: Any) -> FileDataEngine | WsDataEngine:

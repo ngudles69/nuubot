@@ -97,3 +97,7 @@ def log_config() -> dict:
     config["filters"] = {"nuubot_messages": {"()": "nuubot.server.server.UvicornMessageFilter"}}
     config["handlers"]["default"]["filters"] = ["nuubot_messages"]
     return config
+
+
+if __name__ == "__main__":
+    main()

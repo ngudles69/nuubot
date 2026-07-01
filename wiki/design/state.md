@@ -1,7 +1,7 @@
 ---
 title: state design
 created: 2026-06-20
-updated: 2026-06-30
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [design, state, datastore]
@@ -30,6 +30,8 @@ workspace/db/testnet_bot_2.db
 workspace/db/simnet_bot_3.db
 workspace/db/backtest_bot_4.db
 workspace/db/sweep_1.db
+workspace/db/archived/sweep_1.db
+workspace/db/archived/mainnet_bot_1.db
 ```
 
 Reset rule:
@@ -40,6 +42,8 @@ Reset rule:
   `workspace/db/simnet_bot_*.db`.
 - To rerun a sweep, keep the sweep DB/config row and reset run-owned rows.
 - To remove a sweep artifact, delete/drop that sweep DB file.
+- To hide a bot or sweep from active lists without deleting data, archive it by
+  moving its DB file into `workspace/db/archived/`.
 - Do not migrate old bot/sweep runtime state.
 - Do not keep Postgres compatibility paths.
 
@@ -48,11 +52,16 @@ Existence rule:
 ```text
 workspace/db/<exec_network>_bot_<id>.db exists => bot exists
 workspace/db/sweep_<id>.db exists => sweep exists
+workspace/db/archived/<exec_network>_bot_<id>.db exists => archived bot exists
+workspace/db/archived/sweep_<id>.db exists => archived sweep exists
 ```
 
 Do not add central bot/sweep/sweeprun catalog tables unless file discovery is
 measured and proven insufficient. The file is the existence record, which avoids
 central catalog desync.
+
+Archive/unarchive is a file move only. It does not rewrite DB rows or migrate
+state.
 
 Nuubot setup owns `server.db`; see [Server DB](server-db.md).
 

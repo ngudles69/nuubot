@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fasthtml.common import *
+from starlette.responses import RedirectResponse
 
 from nuubot.server.api import register_api
 from nuubot.webgui.layout import CSS, HEADERS, placeholder
@@ -42,6 +43,24 @@ class WebGui:
         @rt("/bots")
         def get():
             return placeholder("Bots", "Bot creation and lifecycle controls will live here.")
+
+        @rt("/bots/{bot_id}/archive", methods=["get", "post"])
+        def get(request, bot_id: int):
+            try:
+                self.server.botmgr.archive(bot_id)
+                request.session["toast"] = (f"Bot ID {bot_id} archived", "alert-success")
+            except Exception as exc:
+                request.session["toast"] = (str(exc), "alert-error")
+            return RedirectResponse("/bots", status_code=303)
+
+        @rt("/bots/{bot_id}/unarchive", methods=["get", "post"])
+        def get(request, bot_id: int):
+            try:
+                self.server.botmgr.unarchive(bot_id)
+                request.session["toast"] = (f"Bot ID {bot_id} unarchived", "alert-success")
+            except Exception as exc:
+                request.session["toast"] = (str(exc), "alert-error")
+            return RedirectResponse("/bots", status_code=303)
 
         @rt("/server")
         def get():

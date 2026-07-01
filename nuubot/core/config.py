@@ -5,7 +5,8 @@ import tomllib
 
 from nuubot.core.logger import logger
 from nuubot.core.models.mconfig import BotrunConfig
-from nuubot.sweeps.models import SweeprunConfig, SweepConfig
+from nuubot.sweeps.models import SweeprunConfig
+from nuubot.sweeps.template import GroupSweepConfig
 
 log = logger("runtime.log")
 
@@ -28,10 +29,10 @@ def load_sweeprun_config(path: Path) -> SweeprunConfig:
         raise
 
 
-def load_sweep_config(path: Path) -> SweepConfig:
+def load_sweep_config(path: Path) -> GroupSweepConfig:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-        return SweepConfig.model_validate(data)
+        return GroupSweepConfig.model_validate(data)
     except Exception as e:
         log.error(f"load_sweep_config error: {e}")
         raise

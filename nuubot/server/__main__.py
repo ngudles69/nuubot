@@ -1,4 +1,4 @@
-from nuubot.server import main
+from nuubot.server.server import main
 
 
 if __name__ == "__main__":

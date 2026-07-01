@@ -1,7 +1,7 @@
 ---
 title: sweepmanager design
 created: 2026-06-29
-updated: 2026-06-30
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [design, server, sweepmanager, sweeps]
@@ -22,6 +22,7 @@ not implement sweep behavior themselves.
 - sweeprun task submission through `ProcessPoolExecutor`.
 - sweep artifact DB creation.
 - sweep DB file discovery.
+- sweep archive/unarchive by DB file move.
 - result collection and summary reads.
 
 ## does not own
@@ -41,7 +42,10 @@ External functions:
 - `run(sweep_id)`
 - `load(sweep_id)`
 - `list()`
+- `archived()`
 - `status(sweep_id)`
+- `archive(sweep_id)`
+- `unarchive(sweep_id)`
 
 ## contracts
 
@@ -52,7 +56,10 @@ External functions:
 | `run(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config/workers, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless process-pool tasks. |
 | `load(sweep_id)` | Sweep id. | Sweep config. | Reads and validates the sweep config from the sweep DB. |
 | `list()` | None. | Sweep DB paths/rows/status. | Discovers `workspace/db/sweep_*.db`. |
+| `archived()` | None. | Archived sweep DB paths/rows/status. | Discovers `workspace/db/archived/sweep_*.db` and reports status as `archived`. |
 | `status(sweep_id)` | Sweep id. | SQLite-backed sweep status. | Counts sweeprun rows by status and returns progress. |
+| `archive(sweep_id)` | Inactive sweep id. | None. | Moves `workspace/db/sweep_<id>.db` to `workspace/db/archived/sweep_<id>.db`. Does not rewrite data. |
+| `unarchive(sweep_id)` | Archived sweep id. | None. | Moves `workspace/db/archived/sweep_<id>.db` back to `workspace/db/sweep_<id>.db`. |
 
 ## notes
 
@@ -66,6 +73,8 @@ External functions:
   EMA warmup bars, loop OHLCV, log bar/indicator values, and stop cleanly.
 - No executor, risk, entries, exits, orders, or fills in the first run target.
 - Sweep existence is the sweep DB file.
+- Archived sweeps live under `workspace/db/archived/` so normal sweep listing
+  does not scan or display them.
 - Do not add central sweep/sweeprun catalog tables unless file discovery is
   measured and proven insufficient.
 - Process pool is execution. SQLite is truth.

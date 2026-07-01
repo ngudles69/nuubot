@@ -158,11 +158,28 @@ class TradeLedger:
         return fill
 
 
+class MemoryTradeLedger:
+    def __init__(self) -> None:
+        self.next_position_id = 1
+
+    def start(self) -> None:
+        pass
+
+    def open_position(self, side: str, price: float, ts_ms: int) -> int:
+        _ = side, price, ts_ms
+        position_id = self.next_position_id
+        self.next_position_id += 1
+        return position_id
+
+    def close_position(self, position_id: int, side: str, price: float, change_pct: float, reason: str, ts_ms: int) -> None:
+        _ = position_id, side, price, change_pct, reason, ts_ms
+
+
 class ExecutorTrade:
-    def __init__(self, config: TradeConfig, run_log=log, ledger: TradeLedger | None = None) -> None:
+    def __init__(self, config: TradeConfig, run_log=log, ledger: Any | None = None) -> None:
         self.config = config
         self.log = run_log
-        self.ledger = ledger
+        self.ledger = ledger or MemoryTradeLedger()
         self.active = False
         self.side = ""
         self.entry_price = 0.0
@@ -180,8 +197,7 @@ class ExecutorTrade:
         pass
 
     async def start(self) -> None:
-        if self.ledger is not None:
-            self.ledger.start()
+        self.ledger.start()
 
     async def loop_once(self, bar: Bar, signal: Signal) -> None:
         closed = False
@@ -235,15 +251,13 @@ class ExecutorTrade:
         self.side = side
         self.entry_price = price
         self.active = True
-        if self.ledger is not None:
-            self.position_id = self.ledger.open_position(side, price, bar.ts_ms)
+        self.position_id = self.ledger.open_position(side, price, bar.ts_ms)
         self.log.info(f"trade_open cycle={self.cycle_id} side={side} price={price} ts_now: {format_ms(bar.ts_ms)}")
 
     def _close(self, price: float, change_pct: float, reason: str, now_ms: int) -> None:
-        if self.ledger is not None:
-            if self.position_id is None:
-                raise RuntimeError("active trade missing position_id")
-            self.ledger.close_position(self.position_id, self.side, price, change_pct, reason, now_ms)
+        if self.position_id is None:
+            raise RuntimeError("active trade missing position_id")
+        self.ledger.close_position(self.position_id, self.side, price, change_pct, reason, now_ms)
         self.pnl_pct += change_pct
         self.wins += int(change_pct >= 0)
         self.losses += int(change_pct < 0)

@@ -1,7 +1,7 @@
 ---
 title: testing
 created: 2026-06-21
-updated: 2026-06-29
+updated: 2026-07-01
 type: wiki
 status: active
 tags: [testing, smoke, runtime]
@@ -11,13 +11,12 @@ tags: [testing, smoke, runtime]
 
 ## smoke test backtest
 
-Use this when asked to test backtest mode.
+No active smoke backtest template is defined after the template split.
 
-Target proof is the direct runtime path until BotManager live process handling
-exists:
+Legacy reference only:
 
-```bash
-uv run python -m nuubot.bots.runtime -f workspace/templates/smoke-backtest.toml
+```text
+workspace/templates/sweeps/old/smoke-backtest.toml
 ```
 
 Expected:
@@ -29,14 +28,12 @@ Expected:
 
 ## smoke test simnet
 
-Use this when asked to test simnet mode. The template filename still says
-`papertest` until the file is renamed.
+No active smoke simnet template is defined after the template split.
 
-Target proof is the direct runtime path until BotManager live process handling
-exists:
+Legacy reference only:
 
-```bash
-uv run python -m nuubot.bots.runtime -f workspace/templates/smoke-papertest.toml
+```text
+workspace/templates/sweeps/old/smoke-papertest.toml
 ```
 
 Expected:

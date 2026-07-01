@@ -9,7 +9,7 @@ from starlette.responses import RedirectResponse
 
 from nuubot.webgui.layout import shell
 
-DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "workspace" / "templates" / "ema-1h-fast.toml"
+DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "workspace" / "templates" / "sweeps" / "emacross-tradebot-2025-halves.toml"
 
 
 def register(rt, server) -> None:
