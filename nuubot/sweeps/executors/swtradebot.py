@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from nuubot.bots.executors.tradebot.tradebot import MemoryTradeLedger, TradeConfig
-from nuubot.core.dtypes import Bar, BotRunResult, SwData, Timeframe
+from nuubot.core.dtypes import Bar, BotRunResult
 from nuubot.core.format import format_ms
 from nuubot.sweeps.signalers import SwSignal
 
@@ -28,9 +28,6 @@ class SwTradeBot:
 
     async def init(self) -> None:
         pass
-
-    def data_req(self, interval: str) -> list[SwData]:
-        return [SwData("executor", self.config.symbol, Timeframe(interval), 0)]
 
     async def start(self) -> None:
         self.ledger.start()

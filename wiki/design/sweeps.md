@@ -252,13 +252,14 @@ families. The sweep does not know why a signaler needs each dataset.
 
 The shared contract is:
 
-- `SwData`: one requested or loaded market dataset.
+- `SwData`: one loaded market dataset owned by one component.
 - `SwSignal`: one standardized signal output.
 - `SwSignaler`: lifecycle protocol for sweep signalers.
 
-`SwData` is both the request and the loaded data container. Before load,
-`frame` is empty. The generic data loader fills `frame`. The signaler then
-uses the same object for calculation and checks.
+`SwData` is the loaded-data container. The signaler declares its own named
+datasets during `init()`. Each `SwData` is complete at construction time; before
+load, `frame` is an empty Polars dataframe. The generic data loader fills
+`frame`. The signaler then uses the same object for calculation and checks.
 
 ```text
 SwData
@@ -267,16 +268,16 @@ SwData
   timeframe
   warmup_bars
   max_age_ms
+  start_ms
+  stop_ms
   frame
 ```
 
 Flow:
 
 ```text
-for item in signaler.data_req(symbol):
-  item.frame = loader.load(item, start_ms, stop_ms)
-
-signaler.load()
+signaler.init(config, symbol)
+signaler.load(loader, start_ms, stop_ms)
 signaler.calc()
 signal = signaler.check(now_ms)
 ```
@@ -286,13 +287,59 @@ Rules:
 - The loader is generic. It loads market data only.
 - The loader is not owned by a signaler, a sweep, or an executor.
 - The loader returns a Polars dataframe.
+- Each signaler owns its named `SwData` fields.
+- Sweeprun owns replay `SwData` for the event loop.
+- Executors consume bars and signals; they do not declare signaler data.
 - `SwData.frame` is the signaler's working data.
+- Sweep code must not inspect signaler datasets.
+- `load()` decides how much history each signaler dataset needs, sets the
+  dataset load window, then loads it.
+- `calc()` calculates the full loaded dataset, including warmup rows.
+- `check()` picks the latest closed calculated row as of the requested time and
+  returns that row's `SwSignal`.
+- Executor/sweeprun code decides whether to call `check()` or ignore entry
+  signals while a bot is active. That state is not signaler concern.
 - `calc()` adds whatever columns the signaler needs to its frames.
 - `check()` reads those custom columns and returns `SwSignal`.
 - Indicator column names are private to each signaler.
 - Voting rules are private to each signaler: any-one, two-of-three, all-of-three,
   regime filters, or other custom logic.
 - Generic sweep code must not reference signaler calculation columns.
+
+Lifecycle intent:
+
+```text
+init(config, symbol)
+  validate config
+  validate timeframe
+  validate signaler parameters
+  store signaler settings
+  define named SwData fields with empty frames
+  setup internal caches
+
+load(loader, start_ms, stop_ms)
+  determine each dataset's warmup bars
+  determine each dataset's load start and stop
+  load each owned dataset through the generic loader
+  validate enough data was loaded
+
+calc()
+  calculate the full loaded dataset
+  add signaler-private columns to each frame
+  build any private lookup cache needed by check()
+
+check(now_ms)
+  select the latest closed calculated row as of now_ms
+  fail loud if that row is too stale for the dataset
+  return SwSignal only
+```
+
+`init()` is the config boundary. If it passes, the signaler has valid settings
+and named dataset fields. `load()` is the data boundary. It is where the
+signaler decides how much history each dataset needs. `calc()` is the indicator
+boundary. It can use Polars, TA-Lib, NumPy, or helper functions, but it stores
+the result back on its own frames. `check()` is the signal boundary. It does not
+know or care whether a bot is running.
 
 `SwSignal` is the only standardized output:
 
@@ -311,8 +358,8 @@ Supported authored timeframes are:
 ```
 
 `SwEmacross` is the first reference implementation. It should stay simple, but
-it must show the complete pattern: validate config, request data, load frames,
-calculate columns, and check the latest complete calculated bar.
+it must show the complete pattern: validate config, define named signaler data,
+load frames, calculate columns, and check the latest complete calculated bar.
 
 ## executor comparison
 

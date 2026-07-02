@@ -10,9 +10,9 @@ from typing import Any
 import polars as pl
 
 from nuubot.core.data_loader import DataLoader, bars_from_frame
-from nuubot.core.dtypes import Bar, SwData
+from nuubot.core.dtypes import Bar, SwData, Timeframe
 from nuubot.core.logger import LOG_DIR, logger
-from nuubot.core.market_data import date_ms
+from nuubot.core.market_data import date_ms, interval_ms
 from nuubot.core.telemetry import pt_now_ts_ms
 from nuubot.datastore import BotrunRow, Datastore, SweeprunRow
 from nuubot.sweeps.executors import build_executor
@@ -108,7 +108,7 @@ class Sweeprun:
 
         # Build signaler.
         pt_signaler_init_ts_ms = pt_now_ts_ms()
-        self.signaler = build_signaler(config.signaler)
+        self.signaler = build_signaler(config.signaler, config.executor.symbol)
         self.record_timing_ms("signaler_init", pt_now_ts_ms() - pt_signaler_init_ts_ms)
 
         # Build executor.
@@ -120,17 +120,22 @@ class Sweeprun:
         self.start_ms = date_ms(config.sweeprun.start)
         self.stop_ms = date_ms(config.sweeprun.end)
 
-        # Request required data.
-        signaler_data = self.signaler.data_req(config.executor.symbol)
-        executor_data = self.executor.data_req(config.executor.interval)
-        data_req: list[SwData] = signaler_data + executor_data
-
-        # Load required data.
+        # Load replay data.
         pt_load_ts_ms = pt_now_ts_ms()
         loader = DataLoader(config.sweeprun.data_dir)
-        for item in data_req:
-            item.frame = loader.load(item, self.start_ms, self.stop_ms)
-        self.bars = bars_from_frame(executor_data[0].frame.filter(pl.col("is_active")))
+        replay_timeframe = Timeframe(config.executor.interval)
+        replay_data = SwData(
+            "replay",
+            config.executor.symbol,
+            replay_timeframe,
+            0,
+            interval_ms(replay_timeframe.value) * 2,
+            self.start_ms,
+            self.stop_ms,
+            pl.DataFrame(),
+        )
+        replay_data.frame = loader.load(replay_data)
+        self.bars = bars_from_frame(replay_data.frame.filter(pl.col("is_active")))
         self.record_timing_ms("load", pt_now_ts_ms() - pt_load_ts_ms)
 
         self.run_log.info(
@@ -145,7 +150,7 @@ class Sweeprun:
 
         # Load signaler data.
         pt_signaler_load_ts_ms = pt_now_ts_ms()
-        self.signaler.load()
+        self.signaler.load(loader, self.start_ms, self.stop_ms)
         self.warmup_bars = self.signaler.warmup_bars
         self.record_timing_ms("signaler_load", pt_now_ts_ms() - pt_signaler_load_ts_ms)
 

@@ -13,13 +13,11 @@ class DataLoader:
     def __init__(self, data_dir: str) -> None:
         self.data_dir = Path(data_dir)
 
-    def load(self, data: SwData, start_ms: int, stop_ms: int) -> pl.DataFrame:
+    def load(self, data: SwData) -> pl.DataFrame:
         """Load one market dataset into a Polars dataframe."""
 
         interval = interval_ms(data.timeframe.value)
-
-        # Select active window plus warmup.
-        warmup_start_ms = start_ms - interval * data.warmup_bars
+        active_start_ms = data.start_ms + interval * data.warmup_bars
 
         # Locate source files.
         root = self.data_dir / data.symbol / data.timeframe.value
@@ -28,7 +26,7 @@ class DataLoader:
 
         # Load rows.
         rows = []
-        for path in binance_files(root, data.symbol, data.timeframe.value, month_keys(warmup_start_ms, stop_ms)):
+        for path in binance_files(root, data.symbol, data.timeframe.value, month_keys(data.start_ms, data.stop_ms)):
             for bar in read_binance_file(path):
                 rows.append((bar.ts_ms, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.closed))
         if not rows:
@@ -39,8 +37,8 @@ class DataLoader:
         frame = frame.sort("ts_ms")
 
         # Filter rows.
-        frame = frame.filter((pl.col("ts_ms") >= warmup_start_ms) & (pl.col("ts_ms") <= stop_ms))
-        if frame.filter((pl.col("ts_ms") >= start_ms) & (pl.col("ts_ms") <= stop_ms)).height == 0:
+        frame = frame.filter((pl.col("ts_ms") >= data.start_ms) & (pl.col("ts_ms") <= data.stop_ms))
+        if frame.filter((pl.col("ts_ms") >= active_start_ms) & (pl.col("ts_ms") <= data.stop_ms)).height == 0:
             raise RuntimeError(f"no Binance bars matched {data.symbol} {data.timeframe}")
 
         # Validate frame.
@@ -52,11 +50,9 @@ class DataLoader:
         # Mark active bars and their close time.
         frame = frame.with_columns(
             (pl.col("ts_ms") + interval).alias("close_ms"),
-            (pl.col("ts_ms") >= start_ms).alias("is_active"),
+            (pl.col("ts_ms") >= active_start_ms).alias("is_active"),
         )
 
-        # Store load metadata.
-        data.max_age_ms = interval * 2
         return frame
 
 

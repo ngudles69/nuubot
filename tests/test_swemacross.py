@@ -10,14 +10,16 @@ from nuubot.sweeps.signalers import SwEmacross
 
 def main() -> None:
     validates_timeframe()
+    load_sets_crossover_window()
     calculates_and_checks_latest_closed_bar()
+    check_picks_latest_closed_row()
     rejects_stale_check_time()
 
 
 def validates_timeframe() -> None:
     try:
         signaler = SwEmacross()
-        signaler.init(SignalerConfig(name="emacross", interval="3m", params={"fast": 2, "slow": 3}))
+        signaler.init(SignalerConfig(name="emacross", interval="3m", params={"fast": 2, "slow": 3}), "SOLUSDT")
     except ValueError as exc:
         assert "3m" in str(exc)
     else:
@@ -26,19 +28,17 @@ def validates_timeframe() -> None:
 
 def calculates_and_checks_latest_closed_bar() -> None:
     signaler = initialized_signaler()
-    data = signaler.data_req("SOLUSDT")[0]
-    assert data.name == "trade"
+    data = signaler.crossover
+    assert data.name == "emacross"
     assert data.symbol == "SOLUSDT"
     assert data.timeframe == Timeframe.H1
-    assert data.warmup_bars == 13
+    assert data.warmup_bars == 0
 
-    data.frame = signal_frame(signaler.warmup_bars)
-    data.max_age_ms = interval_ms(data.timeframe.value) * 2
-    signaler.load()
+    signaler.load(StaticLoader(signal_frame(13)), 0, 0)
+    assert data.warmup_bars == 13
     signaler.calc()
 
     frame = data.frame
-    assert frame is not None
     cross = frame.filter(pl.col("sw_enter_long")).tail(1)
     assert cross.height == 1
 
@@ -51,16 +51,38 @@ def calculates_and_checks_latest_closed_bar() -> None:
     assert signal.reason == "ema_cross_up"
 
 
+def load_sets_crossover_window() -> None:
+    signaler = initialized_signaler()
+    start_ms = interval_ms("1h") * 13
+    stop_ms = interval_ms("1h") * 19
+    signaler.load(StaticLoader(signal_frame(13)), start_ms, stop_ms)
+
+    assert signaler.crossover.warmup_bars == 13
+    assert signaler.crossover.start_ms == start_ms - interval_ms("1h") * 13
+    assert signaler.crossover.stop_ms == stop_ms
+
+
+def check_picks_latest_closed_row() -> None:
+    signaler = initialized_signaler()
+    signaler.load(StaticLoader(signal_frame(13)), 0, 0)
+    signaler.calc()
+
+    frame = signaler.crossover.frame
+    cross = frame.filter(pl.col("sw_enter_long")).tail(1).row(0, named=True)
+    next_close_ms = int(cross["close_ms"]) + interval_ms("1h")
+
+    signal = signaler.check(next_close_ms - 1)
+    assert signal.enter_long
+    assert signal.reason == "ema_cross_up"
+
+
 def rejects_stale_check_time() -> None:
     signaler = initialized_signaler()
-    data = signaler.data_req("SOLUSDT")[0]
-    data.frame = signal_frame(signaler.warmup_bars)
-    data.max_age_ms = interval_ms(data.timeframe.value) * 2
-    signaler.load()
+    data = signaler.crossover
+    signaler.load(StaticLoader(signal_frame(13)), 0, 0)
     signaler.calc()
 
     frame = data.frame
-    assert frame is not None
     close_ms = int(frame.tail(1).row(0, named=True)["close_ms"])
     try:
         signaler.check(close_ms + data.max_age_ms + 1)
@@ -72,8 +94,16 @@ def rejects_stale_check_time() -> None:
 
 def initialized_signaler() -> SwEmacross:
     signaler = SwEmacross()
-    signaler.init(SignalerConfig(name="emacross", interval="1h", params={"fast": 2, "slow": 3}))
+    signaler.init(SignalerConfig(name="emacross", interval="1h", params={"fast": 2, "slow": 3}), "SOLUSDT")
     return signaler
+
+
+class StaticLoader:
+    def __init__(self, frame: pl.DataFrame) -> None:
+        self.frame = frame
+
+    def load(self, data) -> pl.DataFrame:
+        return self.frame
 
 
 def signal_frame(warmup_bars: int) -> pl.DataFrame:

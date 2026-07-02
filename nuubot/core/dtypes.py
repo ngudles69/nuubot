@@ -68,8 +68,10 @@ class SwData:
     symbol: str
     timeframe: Timeframe
     warmup_bars: int
-    max_age_ms: int = 0
-    frame: pl.DataFrame | None = None
+    max_age_ms: int
+    start_ms: int
+    stop_ms: int
+    frame: pl.DataFrame
 
 
 @dataclass(order=True)

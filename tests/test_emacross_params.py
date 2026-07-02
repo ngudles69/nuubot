@@ -15,7 +15,7 @@ def rejects_non_integer_ema_periods() -> None:
         try:
             if cls is SwEmacross:
                 signaler = cls()
-                signaler.init(config)
+                signaler.init(config, "SOLUSDT")
             else:
                 cls(config)
         except ValueError as exc:
