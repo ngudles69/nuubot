@@ -1,7 +1,7 @@
 ---
 title: webgui design
 created: 2026-06-29
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [design, server, webgui, fasthtml]
@@ -80,8 +80,8 @@ GET/POST /bots/{bot_id}/unarchive
 GET /sweeps  sweep list
 GET /sweeps/archived  archived sweep list
 GET /sweeps/create  create sweep form
-GET /sweeps/{sweep_id}/results  sweep results JSON
-GET /sweeps/archived/{sweep_id}/results  archived sweep results JSON
+GET /sweeps/{sweep_id}/metrics  sweep metrics JSON
+GET /sweeps/archived/{sweep_id}/metrics  archived sweep metrics JSON
 GET/POST /sweeps/{sweep_id}/archive
 GET/POST /sweeps/{sweep_id}/unarchive
 GET /server  server status surface

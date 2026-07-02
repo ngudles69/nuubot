@@ -1,6 +1,5 @@
 [sweep]
 mode = "fast"
-start_bot_id = 200
 workers = 8
 
 [[data.01]]
@@ -10,7 +9,7 @@ interval = "1h"
 
 [data.01.sweeprun]
 start = "2025-01-01"
-stop = "2025-06-30T23:59:59"
+end = "2025-06-30T23:59:59"
 
 [[data.02]]
 [data.02.market]
@@ -19,7 +18,7 @@ interval = "1h"
 
 [data.02.sweeprun]
 start = "2025-07-01"
-stop = "2025-12-31T23:59:59"
+end = "2025-12-31T23:59:59"
 
 [[signalers.01]]
 [[signalers.01.items]]

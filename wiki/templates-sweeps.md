@@ -32,9 +32,9 @@ x expanded risk values
 ```
 
 Generated sweeprun configs drop the set wrappers and store one definitive
-`market.symbol`, one `market.interval`, one fixed `backtest` window, concrete
-signaler params, concrete executor params, optional risk config, and a `meta`
-object with selected set labels. Botrun config readers ignore `meta`.
+`market.symbol`, one `market.interval`, one `signaler`, concrete executor
+params, optional risk config, and a `sweeprun` section with the test window and
+metadata. Botrun config readers ignore the whole `sweeprun` section.
 
 ## set families
 
@@ -78,7 +78,6 @@ Rules:
 ```toml
 [sweep]
 mode = "fast"
-start_bot_id = 200
 workers = 8
 
 [[data.01]]
@@ -88,7 +87,7 @@ interval = "1h"
 
 [data.01.sweeprun]
 start = "2025-01-01"
-stop = "2025-06-30T23:59:59"
+end = "2025-06-30T23:59:59"
 
 [[data.02]]
 [data.02.market]
@@ -97,7 +96,7 @@ interval = "1h"
 
 [data.02.sweeprun]
 start = "2025-07-01"
-stop = "2025-12-31T23:59:59"
+end = "2025-12-31T23:59:59"
 
 [[signalers.01]]
 [[signalers.01.items]]
@@ -125,7 +124,7 @@ This expands to:
 Generated sweeprun name:
 
 ```text
-emacross-tradebot-2025-halves/data=01/signalers=01/executors=01/run=001
+emacross-tradebot-2025-halves/data=01/signaler=01/executor=01/risk=default/run=001
 ```
 
 Use this as DB/log/display metadata. If a filesystem-safe slug is needed, derive
@@ -139,8 +138,8 @@ it from the same metadata.
 - `[sweep].mode` is the execution shell: currently `fast` or `standard`.
 - `[sweep].mode` must not silently change `[executor].name`.
 - Data sets must generate `[market]` with `symbol` and `interval`.
-- Data sets must generate `backtest` with `start` and `stop`.
-- Signaler sets generate final `[[signalers]]`.
+- Data sets must generate `sweeprun` with `start` and `end`.
+- Signaler sets generate final `[signaler]`.
 - Executor sets generate final `[executor]`.
 - If two groups write the same final path, fail loud.
 - Generated sweepruns must validate before records are created.

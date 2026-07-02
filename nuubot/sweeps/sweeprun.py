@@ -11,8 +11,7 @@ from typing import Any
 from nuubot.core.dtypes import Bar, Signal
 from nuubot.core.format import format_ms
 from nuubot.core.logger import LOG_DIR, logger
-from nuubot.core.market_data import date_ms, load_binance_bars
-from nuubot.core.models.mconfig import BotrunConfig
+from nuubot.core.market_data import date_ms, read_binance_file
 from nuubot.datastore import BotrunRow, Datastore, SweeprunRow
 from nuubot.signalers.emacross import SignalerEmaCross
 from nuubot.sweeps.models import SweeprunConfig
@@ -30,8 +29,7 @@ class Sweeprun:
     sweep_id: int
     sweeprun_id: int
     worker_name: str
-    bot_id: int | None = None
-    config: BotrunConfig | None = None
+    config: SweeprunConfig | None = None
     sweeprun_config: SweeprunConfig | None = None
     bars: list[Bar] | None = None
     signaler: SignalerEmaCross | None = None
@@ -41,8 +39,8 @@ class Sweeprun:
     log_path: Path | None = None
     timing: dict[str, int] = field(default_factory=dict)
 
-    def claim(self) -> None:
-        # Claim the planned sweeprun; botrun rows are actual bot start/stop rows.
+    def start(self) -> None:
+        # Start the planned sweeprun; update its row status.
         tx = self.datastore.tx(Path(self.db_path))
         tx.start()
         try:
@@ -52,7 +50,6 @@ class Sweeprun:
             sweeprun.status = "running"
             self.sweeprun_config = SweeprunConfig.model_validate(json.loads(sweeprun.config_json))
             self.config = self.sweeprun_config
-            self.bot_id = int(self.config.runtime.bot_id)
             tx.commit()
         except Exception:
             tx.rollback()
@@ -64,8 +61,8 @@ class Sweeprun:
         # Workers own their datastore; they do not share Nuubot state.
         started = time.perf_counter()
         t0 = time.perf_counter()
-        self.claim()
-        self.record_timing("claim", time.perf_counter() - t0)
+        self.start()
+        self.record_timing("sweeprun_start", time.perf_counter() - t0)
 
         # Run the generated config and persist the final row state.
         result = await self.run_backtest()
@@ -104,8 +101,8 @@ class Sweeprun:
             raise RuntimeError("sweeprun setup incomplete")
 
         # Warm up indicators before the tested backtest window.
-        start_ms = date_ms(self.config.backtest.start)
-        stop_ms = date_ms(self.config.backtest.stop)
+        start_ms = date_ms(self.config.sweeprun.start)
+        stop_ms = date_ms(self.config.sweeprun.end)
         warmup = [bar for bar in self.bars if bar.ts_ms < start_ms][-self.signaler.required_bars :]
         if len(warmup) < self.signaler.required_bars:
             raise RuntimeError(f"not enough warmup bars: need={self.signaler.required_bars} got={len(warmup)}")
@@ -186,18 +183,18 @@ class Sweeprun:
         return result
 
     def _setup_runtime(self) -> None:
-        if self.config is None or self.bot_id is None or self.sweeprun_config is None:
-            raise RuntimeError("sweeprun must be claimed before setup")
+        if self.config is None or self.sweeprun_config is None:
+            raise RuntimeError("sweeprun must be started before setup")
         self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
         self.run_log = logger(self.log_path.name)
         validate_supported_sweeprun_runtime(self.config)
         t0 = time.perf_counter()
-        self.signaler = SignalerEmaCross(self.config.signalers[0])
+        self.signaler = SignalerEmaCross(self.config.signaler)
         self.record_timing("init_signaler_init", time.perf_counter() - t0)
         t0 = time.perf_counter()
         self.executor = ExecutorTrade(
             TradeConfig(
-                self.config.runtime.bot_id,
+                self.sweeprun_id,
                 self.config.executor.take_profit_pct,
                 self.config.executor.stop_loss_pct,
                 self.config.executor.max_cycles,
@@ -208,20 +205,32 @@ class Sweeprun:
         )
         self.record_timing("init_executor_init", time.perf_counter() - t0)
         t0 = time.perf_counter()
-        self.bars = load_binance_bars(self.config)
+        self.bars = load_sweeprun_bars(self.config)
         self.record_timing("init_data_load", time.perf_counter() - t0)
 
     def record_timing(self, key: str, seconds: float) -> None:
         self.timing[f"{key}_ms"] = self.timing.get(f"{key}_ms", 0) + int(seconds * 1000)
 
 
-def validate_supported_sweeprun_runtime(config: BotrunConfig) -> None:
-    if len(config.signalers) != 1:
-        raise ValueError(f"sweep supports exactly one signaler: got={len(config.signalers)}")
-    if config.signalers[0].name != "emacross":
-        raise ValueError(f"sweep supports emacross signaler only: {config.signalers[0].name}")
+def validate_supported_sweeprun_runtime(config: SweeprunConfig) -> None:
+    if config.signaler.name != "emacross":
+        raise ValueError(f"sweep supports emacross signaler only: {config.signaler.name}")
     if config.executor.name != "tradebot":
         raise ValueError(f"sweep supports tradebot executor only: {config.executor.name}")
+
+
+def load_sweeprun_bars(config: SweeprunConfig) -> list[Bar]:
+    root = Path(config.sweeprun.data_dir) / config.market.symbol / config.market.interval
+    if not root.exists():
+        raise FileNotFoundError(f"missing Binance data folder: {root}")
+    bars: list[Bar] = []
+    for path in sorted(root.glob(f"{config.market.symbol}-{config.market.interval}-*")):
+        bars.extend(read_binance_file(path))
+    end_ms = date_ms(config.sweeprun.end)
+    bars = [bar for bar in bars if bar.ts_ms <= end_ms]
+    if not any(date_ms(config.sweeprun.start) <= bar.ts_ms <= end_ms for bar in bars):
+        raise RuntimeError(f"no Binance bars matched {config.market.symbol} {config.market.interval} {config.sweeprun.start}..{config.sweeprun.end}")
+    return bars
 
 
 def run_sweeprun(db_path: str, sweep_id: int, sweeprun_id: int, worker_name: str) -> dict[str, Any]:

@@ -34,22 +34,21 @@ class GroupSweepConfig(BaseModel):
         return self
 
 
-def normalize_sweep_template(data: dict[str, Any], data_dir: str) -> dict[str, Any]:
+def expand_sweep_template(data: dict[str, Any], data_dir: str) -> dict[str, Any]:
     config = GroupSweepConfig.model_validate(data)
     result = config.model_dump(mode="json")
     result["sweep"]["data_dir"] = data_dir
-    generated = expand_sweep_template(result)
+    generated = generate_sweepruns(result)
     if not generated:
         raise RuntimeError("sweep produced no sweepruns")
     return result
 
 
-def expand_sweep_template(data: dict[str, Any]) -> list[dict[str, Any]]:
+def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
     config = GroupSweepConfig.model_validate(data)
     mode = str(config.sweep.get("mode", ""))
     if mode not in {"fast", "standard"}:
         raise RuntimeError(f"unsupported sweep mode: {mode}")
-    start_bot_id = int(config.sweep.get("start_bot_id", 0))
     data_dir = str(config.sweep.get("data_dir", ""))
     if not data_dir:
         raise RuntimeError("sweep.data_dir is required")
@@ -61,30 +60,31 @@ def expand_sweep_template(data: dict[str, Any]) -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     for index, (data_set, signaler_set, executor_set, risk) in enumerate(product(data_sets, signaler_sets, executor_sets, risk_values), start=1):
-        bot_id = start_bot_id + index - 1
         meta = {
             "data": data_set["label"],
-            "signalers": signaler_set["label"],
-            "executors": executor_set["label"],
+            "signaler": signaler_set["label"],
+            "executor": executor_set["label"],
+            "risk": "default",
             "run": f"{index:03d}",
         }
         market = _required_dict(data_set["value"], "market", f"data.{meta['data']}")
         sweeprun = _required_dict(data_set["value"], "sweeprun", f"data.{meta['data']}")
         _validate_window(sweeprun)
-        executor = _required_dict(executor_set["value"], "executor", f"executors.{meta['executors']}")
+        executor = _required_dict(executor_set["value"], "executor", f"executors.{meta['executor']}")
         signalers = signaler_set["value"].get("items")
         if not isinstance(signalers, list):
-            raise RuntimeError(f"signalers.{meta['signalers']}.items is required")
+            raise RuntimeError(f"signalers.{meta['signaler']}.items is required")
+        if len(signalers) != 1:
+            raise RuntimeError(f"signalers.{meta['signaler']}.items must contain exactly one signaler")
 
-        botrun = {
-            "runtime": {"bot_id": bot_id, "mode": "sweep", "max_loop": 0, "loop_seconds": 1.0},
+        config_row = {
             "market": market,
-            "backtest": {"start": sweeprun["start"], "stop": sweeprun["stop"], "data_dir": data_dir},
-            "signalers": signalers,
+            "sweeprun": {"start": sweeprun["start"], "end": sweeprun["end"], "data_dir": data_dir, "meta": meta},
+            "signaler": signalers[0],
             "executor": executor,
             "risk": risk,
         }
-        row = GeneratedSweeprun.model_validate({**botrun, "meta": meta}).model_dump(mode="json")
+        row = GeneratedSweeprun.model_validate(config_row).model_dump(mode="json")
         rows.append(row)
     return rows
 
@@ -139,7 +139,7 @@ def _required_dict(data: dict[str, Any], key: str, section: str) -> dict[str, An
 def _validate_window(sweeprun: dict[str, Any]) -> None:
     if "start" not in sweeprun:
         raise RuntimeError("sweeprun.start is required")
-    if "stop" not in sweeprun:
-        raise RuntimeError("sweeprun.stop is required")
-    if date_ms(str(sweeprun["start"])) > date_ms(str(sweeprun["stop"])):
-        raise RuntimeError(f"sweeprun.start must be <= stop: {sweeprun['start']}..{sweeprun['stop']}")
+    if "end" not in sweeprun:
+        raise RuntimeError("sweeprun.end is required")
+    if date_ms(str(sweeprun["start"])) > date_ms(str(sweeprun["end"])):
+        raise RuntimeError(f"sweeprun.start must be <= end: {sweeprun['start']}..{sweeprun['end']}")

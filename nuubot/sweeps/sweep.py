@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from nuubot.datastore import AccountRow, BotrunRow, Datastore, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
-from nuubot.sweeps.template import GroupSweepConfig, expand_sweep_template
+from nuubot.sweeps.template import GroupSweepConfig, generate_sweepruns
 from nuubot.sweeps.sweeprun import run_sweeprun
 
 MAX_SWEEP_WORKERS = 8
@@ -42,7 +42,7 @@ class Sweep:
                 raise RuntimeError(f"sweep.workers must be <= {MAX_SWEEP_WORKERS}: {workers}")
 
             # Expand the template into concrete sweeprun configs.
-            generated_configs = expand_sweep_template(config.model_dump(mode="json"))
+            generated_configs = generate_sweepruns(config.model_dump(mode="json"))
             if not generated_configs:
                 raise RuntimeError("sweep produced no sweepruns")
 

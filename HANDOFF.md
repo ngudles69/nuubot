@@ -4,25 +4,32 @@ Last updated: 2026-07-02
 
 ## focus
 
-Server startup handling in `D:\rust\nuubot`.
+Sweep manager/function-boundary cleanup in `D:\rust\nuubot`.
 
 ## current status
 
-- Last known committed baseline before this handoff: `41160e3 Implement sweep templates and archive controls`.
-- `server.sh` now starts `uv run python -m nuubot.server` in the background,
-  redirects server stdout/stderr to `workspace/logs/server-start.*.log`, and
-  polls `/status` before reporting readiness.
-- `AGENTS.md` now records the manual server-start rule for agents:
-  run `./server.sh`, wait 2 seconds, test `/status`, then retry every 1 second
-  up to 10 seconds before diagnosing startup failure.
-- The agent command backend is PowerShell. Invoking Git Bash from the backend is
-  a non-interactive subprocess, not the user's live Git Bash terminal.
-- Scratch scripts used during diagnosis were removed.
+- Working tree has uncommitted changes.
+- `wiki/coding/rules.md` now documents function naming/splitting rules:
+  functionality first, names by caller intent, no one-line indirection, no
+  helper per field, no properties unless the user requests them.
+- `SweepManager` was hardcut to one inspection surface:
+  `metrics(sweep_id, archived=False)`.
+- Old sweep inspection manager methods/routes were removed:
+  `status()`, `results()`, `telemetry()`, `archived()`, `template()`,
+  `archive_dir()`.
+- Current sweep manager public operations are:
+  `create`, `list`, `list_archives`, `load`, `update`, `clone`, `delete`,
+  `metrics`, `run`, `parse_template`, `archive`, `unarchive`.
+- WebGUI/API now use `/metrics`.
+- `sweep.py` and `sweeprun.py` were cleaned for intent names and fake helper
+  removal.
+- Partial `ProcessPoolExecutor.submit()` launch failure is now covered by a
+  regression test and waits/cancels before marking launch failure.
 
 ## active server
 
-- Last known listener: `127.0.0.1:5001`, PID `22548`.
-- Recheck the PID before stopping or restarting.
+- Server is running on `127.0.0.1:5001`.
+- Recheck PID before stopping or restarting.
 
 ## active agents
 
@@ -34,29 +41,57 @@ None known.
 
 ## files changed
 
-- `AGENTS.md`
+- `nuubot/server/api.py`
+- `nuubot/server/sweepmgr.py`
+- `nuubot/sweeps/sweep.py`
+- `nuubot/sweeps/sweeprun.py`
+- `nuubot/webgui/sweeps/list.py`
+- `tests/test_archive.py`
+- `tests/test_sweep_metrics.py`
+- `tests/test_sweep_results_failure.py`
+- `tests/test_sweep_run_guards.py`
+- `wiki/coding/rules.md`
+- `wiki/design/overview.md`
+- `wiki/design/server-api.md`
+- `wiki/design/sweepmanager.md`
+- `wiki/design/webgui.md`
+- `wiki/testing.md`
 - `HANDOFF.md`
-- `server.sh`
 
 ## proof run
 
-- `./server.sh` was used to start the server.
-- After waiting, `/status` returned:
-  `{"status":"ok","response":{"type":"server_status","data":{"status":"running"}}}`.
-- Port check showed `127.0.0.1:5001` listening with PID `22548`.
+- `python -m compileall -q nuubot tests`
+- All `tests/test_*.py` modules passed.
+- Server restarted via `./server.sh`; `/status` returned OK after the documented
+  delayed readiness check.
+- Sweep `26` rerun on final patched server code:
+  - `status=complete`
+  - `progress=36/36`
+  - `failed=0`
+  - `win_loss=17/36 (47.2%)`
+  - `profit_factor=0.73`
+  - `ev=-3.65%`
+  - `total_ms=4404`
+  - `worker_count=4`
+- Old hardcut routes return `404`:
+  `/api/sweeps/26/status`, `/api/sweeps/26/results`,
+  `/api/sweeps/26/telemetry`.
+- `/api/sweeps/26/metrics` returns OK.
+- `git diff --check` reports only CRLF warnings.
+- Adversarial re-audit returned no findings.
 
 ## proof not run
 
-- Full test suite was not rerun for this startup/docs-only follow-up.
-- Live interactive Git Bash output cannot be observed from the agent's
-  PowerShell-backed command tool.
+- Playwright/WebGUI screenshot check was not run.
 
 ## decisions made
 
-- Keep `server.sh` as the operator entry point for starting the server.
-- Agents must not immediately spam `/status` after starting the server.
-- If startup is not detected within 10 seconds, inspect logs and process state.
+- Use `metrics` as the single sweep inspection/readout surface.
+- Do not keep compatibility wrappers for old sweep inspection routes.
+- Keep `clone` and `delete` as real manager operations.
+- Helpers are allowed only when they reduce real complexity, are reused, or are
+  needed for custom non-standard logic.
 
 ## next action
 
-Continue from the server startup commit.
+Review the uncommitted diff, then commit if acceptable.

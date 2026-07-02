@@ -1,7 +1,7 @@
 ---
 title: design overview
 created: 2026-06-20
-updated: 2026-06-30
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [design, overview]
@@ -141,7 +141,7 @@ without recreating the over-built shape of `nuutrader6`.
 | `Server` | [server.md](server.md) | Parent/control process and infra owner. |
 | `Server DB` | [server-db.md](server-db.md) | Shared SQLite seq/meta/server-state DB. |
 | `BotManager` | [botmanager.md](botmanager.md) | Bot create/load/start/stop/status owner. |
-| `SweepManager` | [sweepmanager.md](sweepmanager.md) | Sweep create/run/status owner. |
+| `SweepManager` | [sweepmanager.md](sweepmanager.md) | Sweep create/run/metrics owner. |
 | `Server API` | [server-api.md](server-api.md) | Thin API route boundary. |
 | `WebGUI` | [webgui.md](webgui.md) | FastHTML display and command-control UI. |
 | `DataEngines` | [dataengines.md](dataengines.md) | Optional shared live feed services. |

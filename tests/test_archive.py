@@ -26,7 +26,7 @@ def sweep_archive_moves_file_out_of_active_list() -> None:
         assert not datastore.dbpath(db).exists()
         assert (datastore.dbroot / "archived" / db).exists()
         assert manager.list()["sweeps"] == []
-        assert manager.archived()["sweeps"][0]["status"] == "archived"
+        assert manager.list_archives()["sweeps"][0]["status"] == "archived"
 
         manager.unarchive(1)
         assert datastore.dbpath(db).exists()

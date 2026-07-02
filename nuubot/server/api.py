@@ -55,35 +55,15 @@ def register_api(rt, server) -> None:
         except Exception as exc:
             return error("sweep_run", str(exc), 400, sweep_id)
 
-    @rt("/api/sweeps/{sweep_id}/status", methods="get")
+    @rt("/api/sweeps/{sweep_id}/metrics", methods="get")
     def get(request, sweep_id: int):
         if sweep_id <= 0:
-            return error("sweep_status", "sweep_id must be positive", 400, sweep_id)
+            return error("sweep_metrics", "sweep_id must be positive", 400, sweep_id)
         try:
-            data = server.sweepmgr.status(sweep_id)
-            return ok("sweep_status", data, 200, sweep_id)
+            data = server.sweepmgr.metrics(sweep_id)
+            return ok("sweep_metrics", data, 200, sweep_id)
         except Exception as exc:
-            return error("sweep_status", str(exc), 400, sweep_id)
-
-    @rt("/api/sweeps/{sweep_id}/telemetry", methods="get")
-    def get(request, sweep_id: int):
-        if sweep_id <= 0:
-            return error("sweep_telemetry", "sweep_id must be positive", 400, sweep_id)
-        try:
-            data = server.sweepmgr.telemetry(sweep_id)
-            return ok("sweep_telemetry", data, 200, sweep_id)
-        except Exception as exc:
-            return error("sweep_telemetry", str(exc), 400, sweep_id)
-
-    @rt("/api/sweeps/{sweep_id}/results", methods="get")
-    def get(request, sweep_id: int):
-        if sweep_id <= 0:
-            return error("sweep_results", "sweep_id must be positive", 400, sweep_id)
-        try:
-            data = server.sweepmgr.results(sweep_id)
-            return ok("sweep_results", data, 200, sweep_id)
-        except Exception as exc:
-            return error("sweep_results", str(exc), 400, sweep_id)
+            return error("sweep_metrics", str(exc), 400, sweep_id)
 
 
 def ok(response_type: str, data, status_code: int = 200, response_id: int | None = None):

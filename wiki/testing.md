@@ -1,7 +1,7 @@
 ---
 title: testing
 created: 2026-06-21
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [testing, smoke, runtime]
@@ -79,5 +79,5 @@ from the server/API or from a guarded proof script that calls
 ```bash
 uv run python -m nuubot.server
 curl.exe -X POST http://127.0.0.1:5001/api/sweeps/<sweep_id>/run
-curl.exe http://127.0.0.1:5001/api/sweeps/<sweep_id>/status
+curl.exe http://127.0.0.1:5001/api/sweeps/<sweep_id>/metrics
 ```

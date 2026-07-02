@@ -1,7 +1,7 @@
 ---
 title: roadmap
 created: 2026-06-20
-updated: 2026-07-01
+updated: 2026-07-02
 type: project
 status: active
 tags: [roadmap]
@@ -85,8 +85,8 @@ This file is the project plan.
 
   - [x] 6.1 Add Server as the parent/control process.
   - [ ] 6.2 Add BotManager for bot create/load/clone/delete/view/ping/status.
-  - [ ] 6.3 Add SweepManager for sweep create/run/view/status.
-  - [ ] 6.4 Add Server API routes as thin adapters.
+  - [x] 6.3 Add SweepManager for sweep create/run/metrics/archive operations.
+  - [x] 6.4 Add Server API routes as thin adapters.
   - [x] 6.5 Add FastHTML WebGUI under `nuubot/webgui/**`.
   - [x] 6.6 Start WebGUI with `uv run python -m nuubot.server`.
   - [x] 6.7 Add repo-root `server.cmd` and `server.sh` helpers.
@@ -94,7 +94,7 @@ This file is the project plan.
   - [x] 6.9 Remove Ray from the active runtime path.
   - [ ] 6.10 Start live managed bots through BotManager when lifecycle code needs it.
   - [x] 6.11 Submit sweep tasks through SweepManager using `ProcessPoolExecutor`.
-  - [ ] 6.12 Keep API/routes tiny: validate input, call one manager/helper,
+  - [x] 6.12 Keep API/routes tiny: validate input, call one manager/helper,
     return result.
   - [ ] 6.13 Keep CLI as a thin operator helper over the same manager/helper
     functions.
@@ -125,7 +125,7 @@ This file is the project plan.
 ### [o] 9. Sweep
 
   - [x] 9.1 Implement a basic EMA-cross data/indicator sweep loop.
-  - [ ] 9.2 Use EMA-cross sweep as the template for future sweeps.
+  - [x] 9.2 Use EMA-cross sweep as the template for future sweeps.
   - [x] 9.3 Prove sweep runs through SweepManager and process-pool task path.
 
 ### [o] 10. Template system
@@ -152,13 +152,13 @@ This file is the project plan.
   - [ ] 10.7 Revalidate stored `config_json` when each sweeprun starts, then run
     component init checks: signalers, executor, risk, data coverage, then
     execute.
-  - [ ] 10.8 Create the BTCUSDT/SOLUSDT 2025-halves EMA-cross sweep template:
+  - [x] 10.8 Create the BTCUSDT/SOLUSDT 2025-halves EMA-cross sweep template:
     2 symbols x 2 periods x fast `[5, 8, 11]` x slow `[20, 30, 50]` = 36
     sweepruns.
-  - [ ] 10.9 Run the sweep through the real SweepManager/process-pool path,
+  - [x] 10.9 Run the sweep through the real SweepManager/process-pool path,
     fix bugs, and prove all 36 sweepruns complete or fail with specific
     boundary/component/data errors.
-  - [ ] 10.10 Run adversarial audits before and after implementation; accept
+  - [x] 10.10 Run adversarial audits before and after implementation; accept
     correctness/proof findings and reject trivial or design-opposing findings
     with written disposition.
 
@@ -171,7 +171,7 @@ This file is the project plan.
 
 ### [ ] 12. Results and charts
 
-  - [ ] 12.1 Improve sweep result calculations after template execution is
+  - [x] 12.1 Improve sweep result calculations after template execution is
     stable.
   - [ ] 12.2 Display sweep and sweeprun results in the WebGUI.
   - [ ] 12.3 Add chart display for selected results and generated bot configs.

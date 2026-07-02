@@ -1,7 +1,7 @@
 ---
 title: server api design
 created: 2026-06-29
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [design, server, api, routes]
@@ -116,7 +116,7 @@ All API routes return:
 {
   "status": "ok",
   "response": {
-    "type": "sweep_results",
+    "type": "sweep_metrics",
     "id": 27,
     "data": {}
   }
@@ -129,11 +129,11 @@ Errors return:
 {
   "status": "err",
   "response": {
-    "type": "sweep_results",
+    "type": "sweep_metrics",
     "id": 27,
     "data": {
       "error": {
-        "code": "sweep_results_failed",
+        "code": "sweep_metrics_failed",
         "message": "sweep DB missing: sweep_27.db"
       }
     }
@@ -160,20 +160,18 @@ GET  /api/sweeps                   -> sweeps_list
 POST /api/sweeps                   -> sweep_create
 GET  /api/sweeps/{sweep_id}        -> sweep_get
 POST /api/sweeps/{sweep_id}/run    -> sweep_run
-GET  /api/sweeps/{sweep_id}/status -> sweep_status
-GET  /api/sweeps/{sweep_id}/results -> sweep_results
-GET  /api/sweeps/{sweep_id}/telemetry -> sweep_telemetry
+GET  /api/sweeps/{sweep_id}/metrics -> sweep_metrics
 ```
 
 Examples:
 
-Successful status response:
+Successful metrics response:
 
 ```json
 {
   "status": "ok",
   "response": {
-    "type": "sweep_status",
+    "type": "sweep_metrics",
     "id": 27,
     "data": {
       "sweep_id": 27,
@@ -227,11 +225,11 @@ Boundary error:
 {
   "status": "err",
   "response": {
-    "type": "sweep_results",
+    "type": "sweep_metrics",
     "id": 999999,
     "data": {
       "error": {
-        "code": "sweep_results_failed",
+        "code": "sweep_metrics_failed",
         "message": "sweep DB missing: sweep_999999.db"
       }
     }
@@ -260,9 +258,7 @@ GET  /api/sweeps
 POST /api/sweeps
 GET  /api/sweeps/{sweep_id}
 POST /api/sweeps/{sweep_id}/run
-POST /api/sweeps/{sweep_id}/stop
-GET  /api/sweeps/{sweep_id}/status
-GET  /api/sweeps/{sweep_id}/sweepruns
+GET  /api/sweeps/{sweep_id}/metrics
 ```
 
 Do not include network in every route by default. Bot DB identity and bot
@@ -301,8 +297,8 @@ POST /api/sweeps/{sweep_id}/run
 ```
 
 ```text
-GET /api/sweeps/{sweep_id}/status
+GET /api/sweeps/{sweep_id}/metrics
   route validates sweep_id is a positive int
-  route calls SweepManager.status(sweep_id)
-  route returns type=sweep_status with data=status
+  route calls SweepManager.metrics(sweep_id)
+  route returns type=sweep_metrics with data=metrics
 ```

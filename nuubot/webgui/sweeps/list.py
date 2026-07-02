@@ -29,7 +29,7 @@ def register(rt, server) -> None:
 
     @rt("/sweeps/archived", methods="get")
     def get(request):
-        rows = list(reversed(server.sweepmgr.archived()["sweeps"]))
+        rows = list(reversed(server.sweepmgr.list_archives()["sweeps"]))
         flash = request.session.pop("toast", None)
         return shell(
             Section(
@@ -43,13 +43,13 @@ def register(rt, server) -> None:
             )
         )
 
-    @rt("/sweeps/archived/{sweep_id}/results", methods="get")
+    @rt("/sweeps/archived/{sweep_id}/metrics", methods="get")
     def get(request, sweep_id: int):
-        result = server.sweepmgr.results(sweep_id, archived=True)
+        result = server.sweepmgr.metrics(sweep_id, archived=True)
         return shell(
             Section(
                 Card(
-                    CardTitle(f"Archived Sweep {sweep_id} Results"),
+                    CardTitle(f"Archived Sweep {sweep_id} Metrics"),
                     Pre(json.dumps(result, indent=2, sort_keys=True), cls="result-json"),
                     A("Back", href="/sweeps/archived", cls="uk-btn uk-btn-default"),
                 ),
@@ -57,13 +57,13 @@ def register(rt, server) -> None:
             )
         )
 
-    @rt("/sweeps/{sweep_id}/results", methods="get")
+    @rt("/sweeps/{sweep_id}/metrics", methods="get")
     def get(request, sweep_id: int):
-        result = server.sweepmgr.results(sweep_id)
+        result = server.sweepmgr.metrics(sweep_id)
         return shell(
             Section(
                 Card(
-                    CardTitle(f"Sweep {sweep_id} Results"),
+                    CardTitle(f"Sweep {sweep_id} Metrics"),
                     Pre(json.dumps(result, indent=2, sort_keys=True), cls="result-json"),
                     A("Back", href="/sweeps", cls="uk-btn uk-btn-default"),
                 ),
@@ -191,7 +191,7 @@ def sweep_row(row: dict, error: str = "", archived: bool = False):
 def active_actions(row: dict):
     sweep_id = row["sweep_id"]
     return Div(
-        A("View", href=f"/sweeps/{sweep_id}/results", cls="uk-btn uk-btn-sm uk-btn-default"),
+        A("View", href=f"/sweeps/{sweep_id}/metrics", cls="uk-btn uk-btn-sm uk-btn-default"),
         Form(
             Button("Run", cls="uk-btn uk-btn-sm uk-btn-default"),
             action=f"/sweeps/{sweep_id}/run",
@@ -211,7 +211,7 @@ def active_actions(row: dict):
 
 def archived_actions(sweep_id: int):
     return Div(
-        A("View", href=f"/sweeps/archived/{sweep_id}/results", cls="uk-btn uk-btn-sm uk-btn-default"),
+        A("View", href=f"/sweeps/archived/{sweep_id}/metrics", cls="uk-btn uk-btn-sm uk-btn-default"),
         Form(Button("Unarchive", cls="uk-btn uk-btn-sm uk-btn-default"), action=f"/sweeps/{sweep_id}/unarchive", method="post"),
         cls="action-row",
     )
@@ -223,13 +223,6 @@ def sweep_is_active(row: dict) -> bool:
         or int(row.get("queued_count", 0)) > 0
         or int(row.get("running_count", 0)) > 0
     )
-
-
-def load_row(server, sweep_id: int) -> dict:
-    for row in server.sweepmgr.list()["sweeps"]:
-        if row["sweep_id"] == sweep_id:
-            return row
-    raise RuntimeError(f"sweep row missing: {sweep_id}")
 
 
 def toast_from_flash(flash):

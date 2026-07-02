@@ -229,7 +229,6 @@ def sweep_config(*, workers: int, fast: dict[str, int] | None = None) -> dict:
     config = {
         "sweep": {
             "mode": "fast",
-            "start_bot_id": 200,
             "workers": workers,
             "data_dir": "workspace/data/binance/raw/spot/monthly/klines",
         },
@@ -237,7 +236,7 @@ def sweep_config(*, workers: int, fast: dict[str, int] | None = None) -> dict:
             "01": [
                 {
                     "market": {"symbol": "BTCUSDT", "interval": "1h"},
-                    "sweeprun": {"start": "2025-01-01", "stop": "2025-03-31T23:59:59"},
+                    "sweeprun": {"start": "2025-01-01", "end": "2025-03-31T23:59:59"},
                 }
             ],
         },

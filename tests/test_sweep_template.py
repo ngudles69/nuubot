@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import tomllib
 
-from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.sweeps.sweeprun import validate_supported_sweeprun_runtime
-from nuubot.sweeps.template import expand_sweep_template, normalize_sweep_template
+from nuubot.sweeps.models import SweeprunConfig
+from nuubot.sweeps.template import expand_sweep_template, generate_sweepruns
 
 
 def main() -> None:
@@ -16,15 +16,17 @@ def main() -> None:
 
 def expands_2025_halves_template_to_36_sweepruns() -> None:
     data = tomllib.loads(Path("workspace/templates/sweeps/emacross-tradebot-2025-halves.toml").read_text(encoding="utf-8"))
-    normalized = normalize_sweep_template(data, "workspace/data/binance/raw/spot/monthly/klines")
-    rows = expand_sweep_template(normalized)
+    normalized = expand_sweep_template(data, "workspace/data/binance/raw/spot/monthly/klines")
+    rows = generate_sweepruns(normalized)
     assert len(rows) == 36
-    assert rows[0]["meta"] == {"data": "01", "signalers": "01", "executors": "01", "run": "001"}
+    assert rows[0]["sweeprun"]["meta"] == {"data": "01", "signaler": "01", "executor": "01", "risk": "default", "run": "001"}
     assert rows[0]["market"] == {"symbol": "BTCUSDT", "interval": "1h"}
-    assert rows[0]["signalers"][0]["params"] == {"fast": 5, "slow": 20}
-    assert rows[-1]["meta"] == {"data": "02", "signalers": "01", "executors": "01", "run": "036"}
+    assert rows[0]["sweeprun"]["end"] == "2025-06-30T23:59:59"
+    assert rows[0]["signaler"]["params"] == {"fast": 5, "slow": 20}
+    assert rows[-1]["sweeprun"]["meta"] == {"data": "02", "signaler": "01", "executor": "01", "risk": "default", "run": "036"}
     assert rows[-1]["market"] == {"symbol": "SOLUSDT", "interval": "1h"}
-    assert rows[-1]["signalers"][0]["params"] == {"fast": 11, "slow": 50}
+    assert rows[-1]["sweeprun"]["end"] == "2025-12-31T23:59:59"
+    assert rows[-1]["signaler"]["params"] == {"fast": 11, "slow": 50}
 
 
 def rejects_bad_labels_after_toml_parse() -> None:
@@ -41,7 +43,7 @@ interval = "1m"
 
 [data."bad/label".sweeprun]
 start = "2025-01-01"
-stop = "2025-01-31"
+end = "2025-01-31"
 
 [[signalers.01]]
 [[signalers.01.items]]
@@ -58,7 +60,7 @@ max_cycles = 0
 """
     )
     try:
-        normalize_sweep_template(data, "workspace/data/binance/raw/spot/monthly/klines")
+        expand_sweep_template(data, "workspace/data/binance/raw/spot/monthly/klines")
     except ValueError as exc:
         assert "invalid data label: bad/label" in str(exc)
     else:
@@ -66,28 +68,24 @@ max_cycles = 0
 
 
 def rejects_sweeprun_runtime_multiple_signalers() -> None:
-    config = BotrunConfig.model_validate(
+    config = SweeprunConfig.model_validate(
         {
-            "runtime": {"bot_id": 1, "mode": "sweep", "max_loop": 0, "loop_seconds": 1.0},
             "market": {"symbol": "BTCUSDT", "interval": "1h"},
-            "backtest": {
+            "sweeprun": {
                 "start": "2025-01-01",
-                "stop": "2025-01-02",
+                "end": "2025-01-02",
                 "data_dir": "workspace/data/binance/raw/spot/monthly/klines",
             },
-            "signalers": [
-                {"name": "emacross", "interval": "1h", "params": {"fast": 5, "slow": 20}},
-                {"name": "emacross", "interval": "1h", "params": {"fast": 8, "slow": 30}},
-            ],
+            "signaler": {"name": "other", "interval": "1h", "params": {"fast": 5, "slow": 20}},
             "executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
         }
     )
     try:
         validate_supported_sweeprun_runtime(config)
     except ValueError as exc:
-        assert "sweep supports exactly one signaler: got=2" in str(exc)
+        assert "sweep supports emacross signaler only: other" in str(exc)
     else:
-        raise AssertionError("multiple signalers should fail loud")
+        raise AssertionError("unsupported signaler should fail loud")
 
 
 if __name__ == "__main__":

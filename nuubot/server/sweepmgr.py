@@ -12,7 +12,7 @@ from typing import Any
 from nuubot.datastore import AccountRow, BotrunRow, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
 from nuubot.nuubot import Nuubot
 from nuubot.sweeps.sweep import Sweep
-from nuubot.sweeps.template import normalize_sweep_template
+from nuubot.sweeps.template import expand_sweep_template
 
 SWEEP_DB_RE = re.compile(r"^sweep_(\d+)\.db$")
 
@@ -24,7 +24,7 @@ class SweepManager:
     run_lock: threading.Lock
 
     def create(self, template: str | dict[str, Any]) -> int:
-        template_data = self.template(template)
+        template_data = self.parse_template(template)
         sweep_id = self.nuubot.datastore.next_seq(self.nuubot.server_db, "sweep")
         db = dbname(sweep_id, "sweep")
         self.nuubot.datastore.dbinit(db)
@@ -47,16 +47,18 @@ class SweepManager:
         if db_dir is None:
             raise RuntimeError("datastore DB root missing")
         rows: list[dict[str, Any]] = []
-        for path in sorted(db_dir.glob("sweep_*.db"), key=_sweep_id_from_path):
-            rows.append(self._list_row(path))
+        for path in sorted(db_dir.glob("sweep_*.db"), key=_extract_sweep_id):
+            rows.append(self._list_sweep(path))
         return {"sweeps": rows}
 
-    def archived(self) -> dict[str, Any]:
-        archive_dir = self.archive_dir()
+    def list_archives(self) -> dict[str, Any]:
+        if self.nuubot.datastore.dbroot is None:
+            raise RuntimeError("datastore DB root missing")
+        archive_dir = self.nuubot.datastore.dbroot / "archived"
         rows = []
         if archive_dir.exists():
-            for path in sorted(archive_dir.glob("sweep_*.db"), key=_sweep_id_from_path):
-                rows.append(self._list_row(path, archived=True))
+            for path in sorted(archive_dir.glob("sweep_*.db"), key=_extract_sweep_id):
+                rows.append(self._list_sweep(path, archived=True))
         return {"sweeps": rows}
 
     def load(self, sweep_id: int) -> dict[str, Any]:
@@ -73,7 +75,7 @@ class SweepManager:
             raise RuntimeError(f"invalid sweep_id: {sweep_id}")
         if not self.nuubot.datastore.dbpath(db).exists():
             raise RuntimeError(f"sweep DB missing: {db}")
-        template_data = self.template(template)
+        template_data = self.parse_template(template)
         with self.run_lock:
             tx = self.nuubot.datastore.tx(db)
             tx.start()
@@ -112,64 +114,67 @@ class SweepManager:
                 raise RuntimeError(f"cannot delete active sweep: {sweep_id}")
             self.nuubot.datastore.drop(db)
 
-    def status(self, sweep_id: int) -> dict[str, Any]:
+    def metrics(self, sweep_id: int, archived: bool = False) -> dict[str, Any]:
         db = dbname(sweep_id, "sweep")
-        if sweep_id <= 0:
-            raise RuntimeError(f"invalid sweep_id: {sweep_id}")
-        if not self.nuubot.datastore.dbpath(db).exists():
-            raise RuntimeError(f"sweep DB missing: {db}")
-        sweep = self.nuubot.datastore.get(db, SweepRow, sweep_id=sweep_id)
-        counts = {
-            status: self.nuubot.datastore.count(db, SweeprunRow, status=status)
-            for status in ("queued", "running", "complete", "failed")
-        }
-        done_count = int(counts["complete"] + counts["failed"])
-        total_count = int(sum(counts.values()))
-        return {
-            "sweep_id": sweep_id,
-            "status": sweep.status,
-            "queued_count": int(counts["queued"]),
-            "running_count": int(counts["running"]),
-            "complete_count": int(counts["complete"]),
-            "failed_count": int(counts["failed"]),
-            "done_count": done_count,
-            "total_count": total_count,
-            "progress": f"{done_count}/{total_count}",
-        }
-
-    def results(self, sweep_id: int, archived: bool = False) -> dict[str, Any]:
-        db = dbname(sweep_id, "sweep")
-        path = self.archive_dir() / db if archived else self.nuubot.datastore.dbpath(db)
-        if sweep_id <= 0:
-            raise RuntimeError(f"invalid sweep_id: {sweep_id}")
-        if not path.exists():
-            raise RuntimeError(f"sweep DB missing: {db}")
-        sweep = self.nuubot.datastore.get(path, SweepRow, sweep_id=sweep_id)
-        result = json.loads(sweep.results_json or "{}")
-        result["telemetry"] = self.telemetry(sweep_id, archived)
-        return result
-
-    def telemetry(self, sweep_id: int, archived: bool = False) -> dict[str, Any]:
-        db = dbname(sweep_id, "sweep")
-        path = self.archive_dir() / db if archived else self.nuubot.datastore.dbpath(db)
+        if self.nuubot.datastore.dbroot is None:
+            raise RuntimeError("datastore DB root missing")
+        path = self.nuubot.datastore.dbroot / "archived" / db if archived else self.nuubot.datastore.dbpath(db)
         if sweep_id <= 0:
             raise RuntimeError(f"invalid sweep_id: {sweep_id}")
         if not path.exists():
             raise RuntimeError(f"sweep DB missing: {db}")
         sweep = self.nuubot.datastore.get(path, SweepRow, sweep_id=sweep_id)
         rows = self.nuubot.datastore.select(path, SweeprunRow, sweep_id=sweep_id)
-        values: dict[str, list[float]] = {}
+
+        # Run status and progress.
+        counts = {
+            status: sum(1 for row in rows if row.status == status)
+            for status in ("queued", "running", "complete", "failed")
+        }
+        done_count = int(counts["complete"] + counts["failed"])
+        total_count = int(sum(counts.values()))
+        status = "archived" if archived else sweep.status
+        progress = "" if archived else f"{done_count}/{total_count}"
+
+        # Stored sweep result and sweeprun performance.
+        results = json.loads(sweep.results_json or "{}")
+        pnl = _pnl_metrics(rows)
+
+        # Sweep and sweeprun timing.
+        timing_values: dict[str, list[float]] = {}
         for row in rows:
             result = json.loads(row.results_json or "{}")
             for key, value in result.get("telemetry", {}).get("timing", {}).items():
                 if isinstance(value, int | float):
-                    values.setdefault(key, []).append(value)
+                    timing_values.setdefault(key, []).append(value)
+        telemetry = {
+            "sweep": results.get("telemetry", {}),
+            "sweepruns": {key: _timing_stats(items) for key, items in sorted(timing_values.items())},
+        }
+
+        config = json.loads(sweep.config_json or "{}")
+        sweep_config = config.get("sweep", {})
         return {
             "sweep_id": sweep_id,
-            "status": "archived" if archived else sweep.status,
+            "name": str(sweep_config.get("name") or f"sweep-{sweep.sweep_id}"),
+            "sweep_desc": sweep.sweep_desc,
+            "status": status,
+            "queued_count": int(counts["queued"]),
+            "running_count": int(counts["running"]),
+            "complete_count": int(counts["complete"]),
+            "failed_count": int(counts["failed"]),
+            "done_count": done_count,
+            "total_count": total_count,
+            "progress": progress,
             "sweeprun_count": len(rows),
-            "sweep": json.loads(sweep.results_json or "{}").get("telemetry", {}),
-            "sweepruns": {key: timing_stats(items) for key, items in sorted(values.items())},
+            "win_loss": pnl["win_loss"],
+            "profit_factor": pnl["profit_factor"],
+            "ev": pnl["ev"],
+            "created_at": sweep.created_at.isoformat() if sweep.created_at else "",
+            "updated_at": sweep.updated_at.isoformat() if sweep.updated_at else "",
+            "db_path": str(path),
+            "results": results,
+            "telemetry": telemetry,
         }
 
     def run(self, sweep_id: int) -> dict[str, Any]:
@@ -182,34 +187,49 @@ class SweepManager:
             raise RuntimeError(f"sweep DB missing: {db}")
         return Sweep(self.nuubot.datastore, sweep_id, self.result_threads, self.run_lock).run()
 
-    def template(self, template: str | dict[str, Any]) -> dict[str, Any]:
-        data = _parse_template(template) if isinstance(template, str) else template
+    def parse_template(self, template: str | dict[str, Any]) -> dict[str, Any]:
+        if isinstance(template, str):
+            text = template.strip()
+            if text.startswith("{"):
+                data = json.loads(text)
+                if not isinstance(data, dict):
+                    raise TypeError("JSON template must be an object")
+            else:
+                data = tomllib.loads(template)
+        else:
+            data = template
         data_dir = f"{self.nuubot.config.paths.data_dir}/binance/raw/spot/monthly/klines"
-        return normalize_sweep_template(data, data_dir)
+        return expand_sweep_template(data, data_dir)
 
-    def archive_dir(self) -> Path:
-        if self.nuubot.datastore.dbroot is None:
-            raise RuntimeError("datastore DB root missing")
-        return self.nuubot.datastore.dbroot / "archived"
-
-    def _list_row(self, path: Path, archived: bool = False) -> dict[str, Any]:
-        sweep_id = _sweep_id_from_path(path)
+    def _list_sweep(self, path: Path, archived: bool = False) -> dict[str, Any]:
+        sweep_id = _extract_sweep_id(path)
         row = self.nuubot.datastore.get(path, SweepRow, sweep_id=sweep_id)
         config = json.loads(row.config_json or "{}")
-        metrics = sweep_metrics(self.nuubot.datastore.select(path, SweeprunRow, sweep_id=sweep_id))
-        status = archived_status(row) if archived else self.status(sweep_id)
+        sweep = config.get("sweep", {})
+        rows = self.nuubot.datastore.select(path, SweeprunRow, sweep_id=sweep_id)
+        pnl = _pnl_metrics(rows)
+        counts = {
+            status: sum(1 for run in rows if run.status == status)
+            for status in ("queued", "running", "complete", "failed")
+        }
+        done_count = row.sweeprun_count if archived else int(counts["complete"] + counts["failed"])
+        total_count = row.sweeprun_count if archived else int(sum(counts.values()))
         return {
             "sweep_id": row.sweep_id,
-            "name": sweep_name(row, config),
+            "name": str(sweep.get("name") or f"sweep-{row.sweep_id}"),
             "sweep_desc": row.sweep_desc,
-            "status": status["status"],
-            "progress": status["progress"],
-            "done_count": status["done_count"],
-            "total_count": status["total_count"],
+            "status": "archived" if archived else row.status,
+            "progress": "" if archived else f"{done_count}/{total_count}",
+            "queued_count": int(counts["queued"]),
+            "running_count": int(counts["running"]),
+            "complete_count": int(counts["complete"]),
+            "failed_count": int(counts["failed"]),
+            "done_count": done_count,
+            "total_count": total_count,
             "sweeprun_count": row.sweeprun_count,
-            "win_loss": metrics["win_loss"],
-            "profit_factor": metrics["profit_factor"],
-            "ev": metrics["ev"],
+            "win_loss": pnl["win_loss"],
+            "profit_factor": pnl["profit_factor"],
+            "ev": pnl["ev"],
             "created_at": row.created_at.isoformat() if row.created_at else "",
             "updated_at": row.updated_at.isoformat() if row.updated_at else "",
             "db_path": str(path),
@@ -219,8 +239,10 @@ class SweepManager:
 
     def archive(self, sweep_id: int) -> None:
         db = dbname(sweep_id, "sweep")
+        if self.nuubot.datastore.dbroot is None:
+            raise RuntimeError("datastore DB root missing")
         source = self.nuubot.datastore.dbpath(db)
-        target = self.archive_dir() / db
+        target = self.nuubot.datastore.dbroot / "archived" / db
         if sweep_id <= 0:
             raise RuntimeError(f"invalid sweep_id: {sweep_id}")
         if not source.exists():
@@ -236,7 +258,9 @@ class SweepManager:
 
     def unarchive(self, sweep_id: int) -> None:
         db = dbname(sweep_id, "sweep")
-        source = self.archive_dir() / db
+        if self.nuubot.datastore.dbroot is None:
+            raise RuntimeError("datastore DB root missing")
+        source = self.nuubot.datastore.dbroot / "archived" / db
         target = self.nuubot.datastore.dbpath(db)
         if sweep_id <= 0:
             raise RuntimeError(f"invalid sweep_id: {sweep_id}")
@@ -254,24 +278,14 @@ def sweepmgr_setup(nuubot: Nuubot) -> SweepManager:
     return SweepManager(nuubot, {}, threading.Lock())
 
 
-def _parse_template(template: str) -> dict[str, Any]:
-    text = template.strip()
-    if text.startswith("{"):
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            raise TypeError("JSON template must be an object")
-        return data
-    return tomllib.loads(template)
-
-
-def _sweep_id_from_path(path: Path) -> int:
+def _extract_sweep_id(path: Path) -> int:
     match = SWEEP_DB_RE.match(path.name)
     if match is None:
-        return 0
+        raise RuntimeError(f"invalid sweep DB name: {path.name}")
     return int(match.group(1))
 
 
-def timing_stats(values: list[float]) -> dict[str, float]:
+def _timing_stats(values: list[float]) -> dict[str, float]:
     return {
         "min": min(values),
         "max": max(values),
@@ -280,21 +294,7 @@ def timing_stats(values: list[float]) -> dict[str, float]:
     }
 
 
-def archived_status(row: SweepRow) -> dict[str, Any]:
-    return {
-        "status": "archived",
-        "progress": "",
-        "done_count": row.sweeprun_count,
-        "total_count": row.sweeprun_count,
-    }
-
-
-def sweep_name(row: SweepRow, config: dict[str, Any]) -> str:
-    sweep = config.get("sweep", {})
-    return str(sweep.get("name") or f"sweep-{row.sweep_id}")
-
-
-def sweep_metrics(rows: list[SweeprunRow]) -> dict[str, str]:
+def _pnl_metrics(rows: list[SweeprunRow]) -> dict[str, str]:
     pnls = []
     for row in rows:
         result = json.loads(row.results_json or "{}")

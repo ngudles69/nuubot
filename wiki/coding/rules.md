@@ -1,7 +1,7 @@
 ---
 title: coding rules
 created: 2026-06-20
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [coding, rules]
@@ -58,7 +58,7 @@ Write simple, clear code.
   unless the current path needs it.
 - Add no Postgres path, migration layer, or DB compatibility bridge unless the
   user explicitly reverses the SQLite direction.
-- Add no property or computed field unless current code 100% needs it.
+- Add no property or computed field unless the user requests it.
 - Get user approval and document abbreviations in `wiki/abbreviations.md`
   before using them.
 - Remove unused helpers and dead stubs.
@@ -70,6 +70,55 @@ Write simple, clear code.
 - Keep durable facts in `wiki/**`.
 - Keep project management in `.project/**`.
 - Keep task-scoped research in `.research/**`.
+
+## functions
+
+Do:
+
+- Do make a function for real functionality.
+  Why: users and callers need stable operations such as `list()`, `clone()`,
+  `delete()`, `archive()`, `run()`, and `metrics()`.
+- Do name the function by caller-facing intent.
+  Why: the name should say what useful job is being done, not how the code does
+  it.
+- Do let one function contain the checks that belong to its functionality.
+  Why: `parse_template()` can parse and validate the template. If a template has
+  100 fields, that does not mean it needs 100 field-check functions.
+- Do keep simple field assembly inside the response or object builder.
+  Why: a derived field like `name = config["sweep"]["name"]` is part of
+  building a list row or metrics payload, not its own domain operation.
+- Do use short intent comments inside a larger function when sections help.
+  Why: comments can show structure without creating fake one-caller helpers.
+- Do break code into more functions only when the user asks for it, the current
+  function is getting difficult to read, the code is repeated or reused in many
+  places, or the code is custom logic instead of standard commands.
+  Why: helpers are for reducing actual complexity, not for making code look
+  decomposed.
+
+Don't:
+
+- Don't add one-line indirection.
+  Why: a function that only calls another function or returns one field adds a
+  name without adding functionality.
+- Don't split code only because a block has a smaller sub-intent.
+  Why: one functionality can have several internal steps; each step does not
+  deserve a function.
+- Don't split parse and validate just because they are separate verbs.
+  Why: split only when validation is reused, complex enough to deserve its own
+  name, or useful as a separate caller-facing operation.
+- Don't name functions after mechanics, types, storage, parsing method, or
+  plumbing.
+  Why: names like `_from_path`, `_text`, `_using_regex`, or `_raw` describe how
+  the code works instead of why the caller wants it.
+- Don't create one helper per field.
+  Why: if `sweep_name()` is justified, then every config field can become a
+  function, which turns field access into ceremony.
+- Don't keep fake concepts just because they are used.
+  Why: used code is not automatically useful code. A one-caller helper can
+  still be noise.
+- Don't expose storage layout as a public manager operation.
+  Why: functions like `archive_dir()` describe internal placement, not user
+  intent.
 
 ## logging
 
