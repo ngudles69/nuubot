@@ -207,11 +207,9 @@ class SweepRow(Base):
 
 class SweeprunRow(Base):
     __tablename__ = "sweeprun"
-    __table_args__ = (UniqueConstraint("sweep_id", "sweeprun_index"),)
 
-    sweeprun_id         : Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sweeprun_id         : Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=False)
     sweep_id            : Mapped[int]          = mapped_column(Integer, index=True)
-    sweeprun_index      : Mapped[int]          = mapped_column(Integer)
     config_json         : Mapped[str]          = mapped_column(Text)
     results_json        : Mapped[str]          = mapped_column(Text, default="{}")
     status              : Mapped[str]          = mapped_column(String(32), default="configured", index=True)

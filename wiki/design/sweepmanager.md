@@ -1,7 +1,7 @@
 ---
 title: sweepmanager design
 created: 2026-06-29
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [design, server, sweepmanager, sweeps]
@@ -18,7 +18,7 @@ not implement sweep behavior themselves.
 
 ## owns
 
-- sweep create/load/view/status.
+- sweep create/load/list/metrics.
 - sweeprun task submission through `ProcessPoolExecutor`.
 - sweep artifact DB creation.
 - sweep DB file discovery.
@@ -42,8 +42,10 @@ External functions:
 - `run(sweep_id)`
 - `load(sweep_id)`
 - `list()`
-- `archived()`
-- `status(sweep_id)`
+- `list_archives()`
+- `metrics(sweep_id, archived=False)`
+- `clone(sweep_id)`
+- `delete(sweep_id)`
 - `archive(sweep_id)`
 - `unarchive(sweep_id)`
 
@@ -53,11 +55,13 @@ External functions:
 | --- | --- | --- | --- |
 | `create(template)` | TOML/JSON text or parsed template. | Sweep id. | Validates through sweep/template code, allocates sequence, creates sweep DB, and writes the sweep row. |
 | `update(sweep_id, template)` | Sweep id and TOML/JSON text or parsed template. | None. | Refuses active sweeps, resets run-owned rows, and replaces config on the existing sweep DB. |
-| `run(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config/workers, resets previous run rows, creates sweeprun/botrun rows, marks the sweep running, and submits stateless process-pool tasks. |
+| `run(sweep_id)` | Sweep id. | DB-backed status. | Validates the sweep DB/config/workers, resets previous run rows, creates sweeprun rows, marks the sweep running, and submits stateless process-pool tasks. |
 | `load(sweep_id)` | Sweep id. | Sweep config. | Reads and validates the sweep config from the sweep DB. |
 | `list()` | None. | Sweep DB paths/rows/status. | Discovers `workspace/db/sweep_*.db`. |
-| `archived()` | None. | Archived sweep DB paths/rows/status. | Discovers `workspace/db/archived/sweep_*.db` and reports status as `archived`. |
-| `status(sweep_id)` | Sweep id. | SQLite-backed sweep status. | Counts sweeprun rows by status and returns progress. |
+| `list_archives()` | None. | Archived sweep DB paths/rows/status. | Discovers `workspace/db/archived/sweep_*.db` and reports status as `archived`. |
+| `metrics(sweep_id, archived=False)` | Sweep id and archive flag. | SQLite-backed sweep status, results, telemetry, and performance metrics. | Reads one sweep DB and returns the inspection payload. |
+| `clone(sweep_id)` | Sweep id. | New sweep id. | Loads the source config and creates a new sweep with it. |
+| `delete(sweep_id)` | Inactive sweep id. | None. | Refuses active sweeps and drops the sweep DB. |
 | `archive(sweep_id)` | Inactive sweep id. | None. | Moves `workspace/db/sweep_<id>.db` to `workspace/db/archived/sweep_<id>.db`. Does not rewrite data. |
 | `unarchive(sweep_id)` | Archived sweep id. | None. | Moves `workspace/db/archived/sweep_<id>.db` back to `workspace/db/sweep_<id>.db`. |
 
@@ -89,7 +93,6 @@ run(sweep_id)
   delete run-owned rows except sweep
   reset sweep.results_json
   create sweeprun rows
-  create botrun rows
   set sweep.status = running
   create a sweep-local process pool
   submit sweeprun tasks to that pool
@@ -110,10 +113,11 @@ Each sweeprun task:
 ```text
 open sweep DB
 set own sweeprun row running
-load own botrun config
+load own sweeprun config
 load historical OHLCV bars
 seed EMA warmup bars
 loop active OHLCV bars
+create botrun rows only when a signal/executor/risk decision starts a bot
 write per-sweeprun log
 write own sweeprun results/status
 close sweep DB

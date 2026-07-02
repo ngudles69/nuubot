@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, dataclass, field
 import json
+import logging
 from pathlib import Path
 import time
 from typing import Any
@@ -17,13 +18,10 @@ from nuubot.signalers.emacross import SignalerEmaCross
 from nuubot.sweeps.models import SweeprunConfig
 from nuubot.bots.executors.tradebot.tradebot import ExecutorTrade, TradeConfig
 
-
-class NoopLog:
-    def info(self, message: str, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    def debug(self, message: str, *args: Any, **kwargs: Any) -> None:
-        pass
+NOOP_LOG = logging.getLogger("nuubot.sweeps.noop")
+NOOP_LOG.addHandler(logging.NullHandler())
+NOOP_LOG.propagate = False
+NOOP_LOG.setLevel(logging.CRITICAL + 1)
 
 
 @dataclass
@@ -43,8 +41,8 @@ class Sweeprun:
     log_path: Path | None = None
     timing: dict[str, int] = field(default_factory=dict)
 
-    def load(self) -> None:
-        # Claim the DB rows and load the generated bot config.
+    def claim(self) -> None:
+        # Claim the planned sweeprun; botrun rows are actual bot start/stop rows.
         tx = self.datastore.tx(Path(self.db_path))
         tx.start()
         try:
@@ -52,11 +50,9 @@ class Sweeprun:
             if sweeprun.sweep_id != self.sweep_id:
                 raise RuntimeError(f"sweeprun row wrong sweep: {self.sweeprun_id}")
             sweeprun.status = "running"
-            botrun = tx.get(BotrunRow, sweeprun_id=self.sweeprun_id, botrun_index=0)
-            botrun.status = "running"
             self.sweeprun_config = SweeprunConfig.model_validate(json.loads(sweeprun.config_json))
-            self.config = self.sweeprun_config.botrun
-            self.bot_id = int(botrun.bot_id)
+            self.config = self.sweeprun_config
+            self.bot_id = int(self.config.runtime.bot_id)
             tx.commit()
         except Exception:
             tx.rollback()
@@ -68,12 +64,12 @@ class Sweeprun:
         # Workers own their datastore; they do not share Nuubot state.
         started = time.perf_counter()
         t0 = time.perf_counter()
-        self.load()
-        self.add_timing("load", time.perf_counter() - t0)
+        self.claim()
+        self.record_timing("claim", time.perf_counter() - t0)
 
         # Run the generated config and persist the final row state.
-        result = await self.loop()
-        self.add_timing("total", time.perf_counter() - started)
+        result = await self.run_backtest()
+        self.record_timing("total", time.perf_counter() - started)
         result["telemetry"]["timing"] = self.timing
         result_json = json.dumps(result, sort_keys=True, separators=(",", ":"))
         tx = self.datastore.tx(Path(self.db_path))
@@ -84,6 +80,7 @@ class Sweeprun:
             sweeprun.results_json = result_json
             sweeprun.error_code = None
             sweeprun.error_text = None
+            # Only botruns created by actual signal/executor starts are mirrored.
             for botrun in tx.select(BotrunRow, sweeprun_id=self.sweeprun_id):
                 if botrun.status != "complete":
                     botrun.status = "complete"
@@ -98,11 +95,11 @@ class Sweeprun:
             tx.close()
         return result
 
-    async def loop(self) -> dict[str, Any]:
+    async def run_backtest(self) -> dict[str, Any]:
         # Build runtime objects and preload market data.
         t0 = time.perf_counter()
-        self._setup()
-        self.add_timing("init", time.perf_counter() - t0)
+        self._setup_runtime()
+        self.record_timing("init", time.perf_counter() - t0)
         if self.config is None or self.bars is None or self.signaler is None or self.executor is None or self.run_log is None:
             raise RuntimeError("sweeprun setup incomplete")
 
@@ -120,11 +117,11 @@ class Sweeprun:
         start_started = time.perf_counter()
         t0 = time.perf_counter()
         await self.signaler.start(warmup)
-        self.add_timing("start_signaler_start", time.perf_counter() - t0)
+        self.record_timing("start_signaler_start", time.perf_counter() - t0)
         t0 = time.perf_counter()
         await self.executor.start()
-        self.add_timing("start_executor_start", time.perf_counter() - t0)
-        self.add_timing("start", time.perf_counter() - start_started)
+        self.record_timing("start_executor_start", time.perf_counter() - t0)
+        self.record_timing("start", time.perf_counter() - start_started)
 
         bars_processed = 0
         entry_signals = 0
@@ -141,10 +138,10 @@ class Sweeprun:
                 continue
             t0 = time.perf_counter()
             await self.executor.loop_once(bar, pending_signal)
-            self.add_timing("loop_executor_loop", time.perf_counter() - t0)
+            self.record_timing("loop_executor_loop", time.perf_counter() - t0)
             t0 = time.perf_counter()
             signal = await self.signaler.loop_once(bar)
-            self.add_timing("loop_signaler_loop", time.perf_counter() - t0)
+            self.record_timing("loop_signaler_loop", time.perf_counter() - t0)
             pending_signal = signal
             bars_processed += 1
             first_ts = bar.ts_ms if first_ts is None else first_ts
@@ -154,13 +151,13 @@ class Sweeprun:
                 entry_signals += 1
             if signal.exit:
                 exit_signals += 1
-        self.add_timing("loop", time.perf_counter() - loop_started)
+        self.record_timing("loop", time.perf_counter() - loop_started)
         # Close executor state and return the persisted result payload.
         stop_started = time.perf_counter()
         t0 = time.perf_counter()
         await self.executor.stop(last_bar)
-        self.add_timing("stop_executor_stop", time.perf_counter() - t0)
-        self.add_timing("stop", time.perf_counter() - stop_started)
+        self.record_timing("stop_executor_stop", time.perf_counter() - t0)
+        self.record_timing("stop", time.perf_counter() - stop_started)
         trade_result = asdict(self.executor.result(bars_processed))
         telemetry = {
             "bars": bars_processed,
@@ -188,15 +185,15 @@ class Sweeprun:
         self.run_log.info("sweeprun_complete " + json.dumps(result, sort_keys=True))
         return result
 
-    def _setup(self) -> None:
+    def _setup_runtime(self) -> None:
         if self.config is None or self.bot_id is None or self.sweeprun_config is None:
-            raise RuntimeError("sweeprun must load before setup")
+            raise RuntimeError("sweeprun must be claimed before setup")
         self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
         self.run_log = logger(self.log_path.name)
         validate_supported_sweeprun_runtime(self.config)
         t0 = time.perf_counter()
         self.signaler = SignalerEmaCross(self.config.signalers[0])
-        self.add_timing("init_signaler_init", time.perf_counter() - t0)
+        self.record_timing("init_signaler_init", time.perf_counter() - t0)
         t0 = time.perf_counter()
         self.executor = ExecutorTrade(
             TradeConfig(
@@ -207,14 +204,14 @@ class Sweeprun:
                 self.config.market.symbol,
                 "default",
             ),
-            NoopLog(),
+            NOOP_LOG,
         )
-        self.add_timing("init_executor_init", time.perf_counter() - t0)
+        self.record_timing("init_executor_init", time.perf_counter() - t0)
         t0 = time.perf_counter()
         self.bars = load_binance_bars(self.config)
-        self.add_timing("init_data_load", time.perf_counter() - t0)
+        self.record_timing("init_data_load", time.perf_counter() - t0)
 
-    def add_timing(self, key: str, seconds: float) -> None:
+    def record_timing(self, key: str, seconds: float) -> None:
         self.timing[f"{key}_ms"] = self.timing.get(f"{key}_ms", 0) + int(seconds * 1000)
 
 

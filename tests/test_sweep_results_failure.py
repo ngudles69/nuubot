@@ -5,7 +5,7 @@ import time
 from tempfile import TemporaryDirectory
 
 from nuubot.datastore import BotrunRow, Datastore, SweeprunRow, SweepRow, dbname
-from nuubot.sweeps.sweep import sweep_results
+from nuubot.sweeps.sweep import finish_sweep
 
 
 class Executor:
@@ -22,13 +22,13 @@ def main() -> None:
         db = dbname(1, "sweep")
         datastore.dbinit(db)
         datastore.insert(db, SweepRow(sweep_id=1, sweep_desc="sweep", config_json="{}", results_json="{}", status="running", sweeprun_count=1))
-        sweeprun = datastore.insert(db, SweeprunRow(sweep_id=1, sweeprun_index=0, config_json="{}", results_json="{}", status="running"))
+        sweeprun = datastore.insert(db, SweeprunRow(sweeprun_id=1, sweep_id=1, config_json="{}", results_json="{}", status="running"))
         datastore.insert(db, BotrunRow(botrun_id=10, sweeprun_id=sweeprun.sweeprun_id, bot_id=10, botrun_index=0, config_json="{}", results_json="{}", status="running"))
 
         future: Future = Future()
         future.set_exception(RuntimeError("boom"))
         executor = Executor()
-        result = sweep_results(datastore, db, 1, [(sweeprun.sweeprun_id, future)], executor, time.perf_counter(), 1)
+        result = finish_sweep(datastore, db, 1, [(sweeprun.sweeprun_id, future)], executor, time.perf_counter(), 1)
 
         assert result["status"] == "failed"
         assert result["failed"] == 1

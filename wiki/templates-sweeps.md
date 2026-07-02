@@ -1,7 +1,7 @@
 ---
 title: sweep templates
 created: 2026-07-01
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [templates, sweeps, config]
@@ -32,9 +32,9 @@ x expanded risk values
 ```
 
 Generated sweeprun configs drop the set wrappers and store one definitive
-`botrun.market.symbol`, one `botrun.market.interval`, one fixed
-`botrun.backtest` window, concrete signaler params, concrete executor params,
-optional risk config, and a sibling `meta` object with selected set labels.
+`market.symbol`, one `market.interval`, one fixed `backtest` window, concrete
+signaler params, concrete executor params, optional risk config, and a `meta`
+object with selected set labels. Botrun config readers ignore `meta`.
 
 ## set families
 
@@ -139,7 +139,7 @@ it from the same metadata.
 - `[sweep].mode` is the execution shell: currently `fast` or `standard`.
 - `[sweep].mode` must not silently change `[executor].name`.
 - Data sets must generate `[market]` with `symbol` and `interval`.
-- Data sets must generate `botrun.backtest` with `start` and `stop`.
+- Data sets must generate `backtest` with `start` and `stop`.
 - Signaler sets generate final `[[signalers]]`.
 - Executor sets generate final `[executor]`.
 - If two groups write the same final path, fail loud.

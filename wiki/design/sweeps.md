@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-07-01
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -13,6 +13,7 @@ tags: [design, sweeps]
 
 - `bot`: one runtime instance lifecycle: init, start, loop, stop.
 - `sweeprun`: one generated parameter set over one market/window period.
+- `botrun`: one actual bot start/stop instance inside a sweeprun.
 - `sweep`: hyperparameter definition that permutates into sweepruns.
 - `ProcessPoolExecutor` runs sweeps as stateless tasks.
 
@@ -37,9 +38,6 @@ GroupSweepConfig
 
 SweeprunConfig
   meta
-  botrun: BotrunConfig
-
-BotrunConfig
   runtime
   market
   backtest
@@ -200,6 +198,11 @@ Sweep persistence:
   summary.
 - Sweep existence is the sweep DB file.
 - Sweeprun existence is a `sweeprun` row inside the sweep DB.
+- Botrun existence is a `botrun` row inside the sweep DB.
+- Queue setup creates sweeprun rows only.
+- A botrun row is created only when a sweeprun is executing, a signaler signals
+  a bot start, and executor/runtime/risk checks agree that a bot can start.
+- If a sweeprun never starts a bot, it has no botrun rows.
 - Timing belongs under `results_json.timing`.
 - Do not add separate sweeprun timing columns such as `elapsed_ms`,
   `load_ms`, `indicator_ms`, or `execution_ms`.
@@ -219,7 +222,6 @@ Speed timing:
 - total ms.
 - bars processed.
 - bars per second.
-- configs per second.
 - worker count.
 
 Speed timing is mandatory for every sweep proof. It measures total sweep wall
@@ -283,8 +285,9 @@ get sweep id from server DB sequence
 create sweep SQLite DB
 record sweep started_at
 generate permutations
-insert sweeprun summaries with sweeprun config and bot config
+insert sweeprun rows with generated configs
 submit process-pool tasks
+create botrun rows only when bot instances actually start
 store each sweeprun result summary in the sweep DB
 store sweep timing in sweep.results_json
 mark sweep complete/error
@@ -305,8 +308,6 @@ through every child.
   loud.
 - External config/templates are validated at the boundary with Pydantic.
 - DB primary keys and references use explicit `<thing>_id` names.
-- In the current sweep path, `botrun_id` is written with the same value as
-  `bot_id`.
 
 ## template shape
 

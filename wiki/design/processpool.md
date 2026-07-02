@@ -1,7 +1,7 @@
 ---
 title: process pool design
 created: 2026-06-30
-updated: 2026-06-30
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [design, processpool, sweeps]
@@ -49,10 +49,11 @@ Each task:
 ```text
 open sweep DB
 set own sweeprun row running
-load own botrun config
+load own sweeprun config
 load historical OHLCV bars
 seed EMA warmup bars
 loop active OHLCV bars
+create botrun rows only when a signal/executor/risk decision starts a bot
 write per-sweeprun log
 write own sweeprun results/status
 close sweep DB

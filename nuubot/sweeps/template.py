@@ -7,16 +7,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nuubot.core.market_data import date_ms
-from nuubot.core.models.mconfig import BotrunConfig
+from nuubot.sweeps.models import SweeprunConfig
 
 LABEL_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-class GeneratedSweeprun(BaseModel):
+class GeneratedSweeprun(SweeprunConfig):
     model_config = ConfigDict(extra="forbid")
-
-    meta: dict[str, Any]
-    botrun: BotrunConfig
 
 
 class GroupSweepConfig(BaseModel):
@@ -87,7 +84,7 @@ def expand_sweep_template(data: dict[str, Any]) -> list[dict[str, Any]]:
             "executor": executor,
             "risk": risk,
         }
-        row = GeneratedSweeprun.model_validate({"meta": meta, "botrun": botrun}).model_dump(mode="json")
+        row = GeneratedSweeprun.model_validate({**botrun, "meta": meta}).model_dump(mode="json")
         rows.append(row)
     return rows
 

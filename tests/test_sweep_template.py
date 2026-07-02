@@ -20,11 +20,11 @@ def expands_2025_halves_template_to_36_sweepruns() -> None:
     rows = expand_sweep_template(normalized)
     assert len(rows) == 36
     assert rows[0]["meta"] == {"data": "01", "signalers": "01", "executors": "01", "run": "001"}
-    assert rows[0]["botrun"]["market"] == {"symbol": "BTCUSDT", "interval": "1h"}
-    assert rows[0]["botrun"]["signalers"][0]["params"] == {"fast": 5, "slow": 20}
+    assert rows[0]["market"] == {"symbol": "BTCUSDT", "interval": "1h"}
+    assert rows[0]["signalers"][0]["params"] == {"fast": 5, "slow": 20}
     assert rows[-1]["meta"] == {"data": "02", "signalers": "01", "executors": "01", "run": "036"}
-    assert rows[-1]["botrun"]["market"] == {"symbol": "SOLUSDT", "interval": "1h"}
-    assert rows[-1]["botrun"]["signalers"][0]["params"] == {"fast": 11, "slow": 50}
+    assert rows[-1]["market"] == {"symbol": "SOLUSDT", "interval": "1h"}
+    assert rows[-1]["signalers"][0]["params"] == {"fast": 11, "slow": 50}
 
 
 def rejects_bad_labels_after_toml_parse() -> None:

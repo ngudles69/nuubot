@@ -17,6 +17,7 @@ def main() -> None:
     invalid_workers_do_not_reset_sweep()
     update_waits_for_run_lock_and_refuses_running_sweep()
     launch_failure_marks_rows_failed()
+    partial_launch_failure_drains_started_futures()
 
 
 def invalid_workers_do_not_reset_sweep() -> None:
@@ -35,7 +36,7 @@ def invalid_workers_do_not_reset_sweep() -> None:
                 sweeprun_count=99,
             )
         )
-        datastore.insert(db, SweeprunRow(sweep_id=1, sweeprun_index=0, config_json="{}", results_json="{}", status="complete"))
+        datastore.insert(db, SweeprunRow(sweeprun_id=1, sweep_id=1, config_json="{}", results_json="{}", status="complete"))
 
         try:
             Sweep(datastore, 1, {}, threading.Lock()).run()
@@ -70,7 +71,7 @@ def update_waits_for_run_lock_and_refuses_running_sweep() -> None:
                 sweeprun_count=1,
             )
         )
-        datastore.insert(db, SweeprunRow(sweep_id=1, sweeprun_index=0, config_json="{}", results_json="{}", status="complete"))
+        datastore.insert(db, SweeprunRow(sweeprun_id=1, sweep_id=1, config_json="{}", results_json="{}", status="complete"))
 
         nuubot = SimpleNamespace(
             datastore=datastore,
@@ -141,7 +142,45 @@ def launch_failure_marks_rows_failed() -> None:
         assert sweep.error_code == "launch_failed"
         assert sweep.error_text == "submit boom"
         assert datastore.count(db, SweeprunRow, status="failed") == 1
-        assert datastore.count(db, BotrunRow, status="failed") == 1
+        assert datastore.count(db, BotrunRow) == 0
+
+
+def partial_launch_failure_drains_started_futures() -> None:
+    with TemporaryDirectory() as root:
+        datastore = Datastore(root)
+        db = dbname(1, "sweep")
+        datastore.dbinit(db)
+        datastore.insert(
+            db,
+            SweepRow(
+                sweep_id=1,
+                sweep_desc="sweep",
+                config_json=json.dumps(sweep_config(workers=4, fast={"start": 6, "stop": 7, "step": 1}), sort_keys=True, separators=(",", ":")),
+                results_json="{}",
+                status="configured",
+                sweeprun_count=0,
+            )
+        )
+
+        original = sweep_module.ProcessPoolExecutor
+        PartialFailingExecutor.last = None
+        sweep_module.ProcessPoolExecutor = PartialFailingExecutor
+        try:
+            try:
+                Sweep(datastore, 1, {}, threading.Lock()).run()
+            except RuntimeError as exc:
+                assert str(exc) == "submit boom"
+            else:
+                raise AssertionError("partial launch failure should be raised")
+        finally:
+            sweep_module.ProcessPoolExecutor = original
+
+        assert PartialFailingExecutor.last is not None
+        assert PartialFailingExecutor.last.shutdown_calls == [(True, True)]
+        sweep = datastore.get(db, SweepRow, sweep_id=1)
+        assert sweep.status == "failed"
+        assert datastore.count(db, SweeprunRow, status="failed") == 2
+        assert datastore.count(db, BotrunRow) == 0
 
 
 class FailingExecutor:
@@ -153,6 +192,29 @@ class FailingExecutor:
 
     def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
         self.shutdown_called = True
+
+
+class PartialFailingExecutor:
+    last = None
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.submit_count = 0
+        self.shutdown_calls: list[tuple[bool, bool]] = []
+        PartialFailingExecutor.last = self
+
+    def submit(self, *args, **kwargs):
+        self.submit_count += 1
+        if self.submit_count == 2:
+            raise RuntimeError("submit boom")
+        return CompletedFuture()
+
+    def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
+        self.shutdown_calls.append((wait, cancel_futures))
+
+
+class CompletedFuture:
+    def result(self):
+        return None
 
 
 def _update_sweep(manager: SweepManager, config: dict, outcome: dict[str, str]) -> None:
