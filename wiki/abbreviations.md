@@ -1,7 +1,7 @@
 ---
 title: abbreviations
 created: 2026-06-29
-updated: 2026-06-30
+updated: 2026-07-02
 type: wiki
 status: active
 tags: [glossary, naming]
@@ -37,6 +37,9 @@ when a short name is clearer than the full word.
 | `cfg` | config | local variable only when obvious |
 | `db` | database | file/path/local variable |
 | `tbl` | table | local variable only when obvious |
+| `ts` | timestamp | timestamp field suffix |
+| `ms` | milliseconds | timing/duration suffix |
+| `s` | seconds | timing/duration suffix |
 | `stime` | start time | local timing variable |
 | `etime` | end time | local timing variable |
 | `ctx` / `Ctx` | context | local variable / class suffix |

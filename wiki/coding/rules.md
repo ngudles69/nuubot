@@ -89,11 +89,18 @@ Do:
   building a list row or metrics payload, not its own domain operation.
 - Do use short intent comments inside a larger function when sections help.
   Why: comments can show structure without creating fake one-caller helpers.
+- Do name lifecycle functions by their role in the lifecycle.
+  Why: names like `execute()`, `start()`, `loop()`, `next()`, and `stop()`
+  make the control flow readable without extra explanation.
 - Do break code into more functions only when the user asks for it, the current
   function is getting difficult to read, the code is repeated or reused in many
   places, or the code is custom logic instead of standard commands.
   Why: helpers are for reducing actual complexity, not for making code look
   decomposed.
+- Do write comments as intent labels for the next block.
+  Why: reading the comments should give the function outline.
+- Do leave a blank line between a docstring and the first block comment.
+  Why: the docstring explains the function; comments explain blocks inside it.
 
 Don't:
 
@@ -119,6 +126,49 @@ Don't:
 - Don't expose storage layout as a public manager operation.
   Why: functions like `archive_dir()` describe internal placement, not user
   intent.
+- Don't use qualifier comments unless the qualifier matters.
+  Why: `# Validate config.` is clearer than explaining where or when validation
+  happens when that ordering is already visible in the code.
+- Don't write comments that only restate mechanics.
+  Why: `# Set status to running.` is useful as a lifecycle step; `# assign
+  running to status` is noise.
+
+Use `nuubot/sweeps/sweeprun.py` as the lifecycle/commenting example:
+
+```py
+async def execute(self) -> dict[str, Any]:
+    """Run the full process-pool sweeprun lifecycle."""
+
+    # Start sweeprun.
+    self.start()
+
+    # Run active events.
+    await self.loop()
+
+    # Finish sweeprun.
+    return await self.stop()
+
+def start(self) -> None:
+    """Start the sweeprun, mark its row running, and initialize runtime objects."""
+
+    # Start timing.
+    ...
+
+    # Get sweeprun record from DB.
+    ...
+
+    # Validate config.
+    ...
+
+    # Set status to running.
+    ...
+
+    # Update DB.
+    ...
+
+    # Store config.
+    ...
+```
 
 ## logging
 
