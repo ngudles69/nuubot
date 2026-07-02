@@ -74,7 +74,6 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
         }
 
         # Build sweeprun config.
-        market = _required_dict(data_set["value"], "market", f"data.{meta['data']}")
         sweeprun = _required_dict(data_set["value"], "sweeprun", f"data.{meta['data']}")
         _validate_window(sweeprun)
         executor = _required_dict(executor_set["value"], "executor", f"executors.{meta['executor']}")
@@ -85,7 +84,6 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
             raise RuntimeError(f"signalers.{meta['signaler']}.items must contain exactly one signaler")
 
         config_row = {
-            "market": market,
             "sweeprun": {"start": sweeprun["start"], "end": sweeprun["end"], "data_dir": data_dir, "meta": meta},
             "signaler": signalers[0],
             "executor": executor,

@@ -1,6 +1,7 @@
 [sweep]
 mode = "fast"
-workers = 8
+workers = 4
+data_dir = "workspace/data/binance/raw/spot/monthly/klines"
 
 [[data.01]]
 [data.01.sweeprun]

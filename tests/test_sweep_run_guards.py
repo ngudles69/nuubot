@@ -235,7 +235,6 @@ def sweep_config(*, workers: int, fast: dict[str, int] | None = None) -> dict:
         "data": {
             "01": [
                 {
-                    "market": {"symbol": "BTCUSDT", "interval": "1h"},
                     "sweeprun": {"start": "2025-01-01", "end": "2025-03-31T23:59:59"},
                 }
             ],
@@ -253,7 +252,7 @@ def sweep_config(*, workers: int, fast: dict[str, int] | None = None) -> dict:
             }],
         },
         "executors": {
-            "01": [{"executor": {"name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0}}],
+            "01": [{"executor": {"symbol": "BTCUSDT", "interval": "1h", "name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0}}],
         },
         "risk": {
             "score": 1,

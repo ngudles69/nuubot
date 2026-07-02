@@ -126,7 +126,7 @@ class Sweeprun:
 
         self.run_log.info(
             f"sweeprun_start worker={self.worker_name} sweep_id={self.sweep_id} sweeprun_id={self.sweeprun_id} "
-            f"symbol={self.config.market.symbol} interval={self.config.market.interval} warmup_bars={len(warmup)}"
+            f"symbol={self.config.executor.symbol} interval={self.config.executor.interval} warmup_bars={len(warmup)}"
         )
 
         # Start runtime components.
@@ -260,7 +260,7 @@ class Sweeprun:
                 self.config.executor.take_profit_pct,
                 self.config.executor.stop_loss_pct,
                 self.config.executor.max_cycles,
-                self.config.market.symbol,
+                self.config.executor.symbol,
                 "default",
             ),
             NOOP_LOG,
@@ -317,16 +317,16 @@ def validate_supported_sweeprun_runtime(config: SweeprunConfig) -> None:
 def load_sweeprun_bars(config: SweeprunConfig) -> list[Bar]:
     """Load market bars for one sweeprun."""
 
-    root = Path(config.sweeprun.data_dir) / config.market.symbol / config.market.interval
+    root = Path(config.sweeprun.data_dir) / config.executor.symbol / config.executor.interval
     if not root.exists():
         raise FileNotFoundError(f"missing Binance data folder: {root}")
     bars: list[Bar] = []
-    for path in sorted(root.glob(f"{config.market.symbol}-{config.market.interval}-*")):
+    for path in sorted(root.glob(f"{config.executor.symbol}-{config.executor.interval}-*")):
         bars.extend(read_binance_file(path))
     end_ms = date_ms(config.sweeprun.end)
     bars = [bar for bar in bars if bar.ts_ms <= end_ms]
     if not any(date_ms(config.sweeprun.start) <= bar.ts_ms <= end_ms for bar in bars):
-        raise RuntimeError(f"no Binance bars matched {config.market.symbol} {config.market.interval} {config.sweeprun.start}..{config.sweeprun.end}")
+        raise RuntimeError(f"no Binance bars matched {config.executor.symbol} {config.executor.interval} {config.sweeprun.start}..{config.sweeprun.end}")
     return bars
 
 

@@ -32,7 +32,7 @@ x expanded risk values
 ```
 
 Generated sweeprun configs drop the set wrappers and store one definitive
-`market.symbol`, one `market.interval`, one `signaler`, concrete executor
+one `symbol`, one `interval`, one `signaler`, concrete executor
 params, optional risk config, and a `sweeprun` section with the test window and
 metadata. Botrun config readers ignore the whole `sweeprun` section.
 
@@ -81,19 +81,11 @@ mode = "fast"
 workers = 8
 
 [[data.01]]
-[data.01.market]
-symbol = ["BTCUSDT", "SOLUSDT"]
-interval = "1h"
-
 [data.01.sweeprun]
 start = "2025-01-01"
 end = "2025-06-30T23:59:59"
 
 [[data.02]]
-[data.02.market]
-symbol = ["BTCUSDT", "SOLUSDT"]
-interval = "1h"
-
 [data.02.sweeprun]
 start = "2025-07-01"
 end = "2025-12-31T23:59:59"
@@ -106,6 +98,8 @@ params = { fast = { start = 5, stop = 11, step = 3 }, slow = [20, 30, 50] }
 
 [[executors.01]]
 [executors.01.executor]
+symbol = ["BTCUSDT", "SOLUSDT"]
+interval = "1h"
 name = "tradebot"
 take_profit_pct = 0.0
 stop_loss_pct = 0.0
@@ -137,8 +131,8 @@ it from the same metadata.
 - Keep values explicit; do not hide defaults in comments.
 - `[sweep].mode` is the execution shell: currently `fast` or `standard`.
 - `[sweep].mode` must not silently change `[executor].name`.
-- Data sets must generate `[market]` with `symbol` and `interval`.
 - Data sets must generate `sweeprun` with `start` and `end`.
+- Executor sets must include `symbol`, `interval`, and executor parameters.
 - Signaler sets generate final `[signaler]`.
 - Executor sets generate final `[executor]`.
 - If two groups write the same final path, fail loud.

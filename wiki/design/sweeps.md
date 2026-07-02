@@ -39,7 +39,6 @@ GroupSweepConfig
 SweeprunConfig
   meta
   runtime
-  market
   backtest
   signalers
   executor
