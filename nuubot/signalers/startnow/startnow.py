@@ -14,8 +14,8 @@ class SignalerStartNow:
     async def init(self) -> None:
         pass
 
-    async def start(self, history: list[Bar]) -> None:
-        _ = history
+    async def start(self, history: list[Bar], start_ms: int, stop_ms: int) -> None:
+        _ = history, start_ms, stop_ms
         pass
 
     async def loop_once(self, bar: Bar) -> Signal:

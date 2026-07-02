@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,7 @@ from nuubot.core.logger import logger
 from nuubot.core.market_data import FileDataEngine, WsDataEngine
 from nuubot.core.models.mconfig import BotrunConfig
 from nuubot.core.risk import Risk
-from nuubot.core.telemetry import Telemetry
+from nuubot.core.telemetry import Telemetry, pt_now_ts_ms
 from nuubot.bots.executors.tradebot.tradebot import ExecutorTrade, TradeConfig
 from nuubot.signalers import Signaler
 
@@ -50,17 +49,17 @@ class Runtime:
         """Initialize runtime components."""
 
         self.log.debug(f"runtime init ts_now: {format_ms(self.clock.now_ms())}")
-        started = time.perf_counter()
+        pt_init_ts_ms = pt_now_ts_ms()
 
         # Initialize data.
-        t0 = time.perf_counter()
+        pt_data_init_ts_ms = pt_now_ts_ms()
         await self.data.init()
-        self.add_timing("init_data_init", time.perf_counter() - t0)
+        self.add_timing_ms("init_data_init", pt_now_ts_ms() - pt_data_init_ts_ms)
 
         # Initialize signaler.
-        t0 = time.perf_counter()
+        pt_signaler_init_ts_ms = pt_now_ts_ms()
         await self.signaler.init()
-        self.add_timing("init_signaler_init", time.perf_counter() - t0)
+        self.add_timing_ms("init_signaler_init", pt_now_ts_ms() - pt_signaler_init_ts_ms)
         self.merge_timing("init_signaler_init", self.signaler.timing)
         self.signaler.timing.clear()
 
@@ -71,13 +70,13 @@ class Runtime:
         await self.executor.init()
 
         # Save init timing.
-        self.add_timing("init", time.perf_counter() - started)
+        self.add_timing_ms("init", pt_now_ts_ms() - pt_init_ts_ms)
 
     async def start(self) -> None:
         """Start runtime components and schedule the runtime loop."""
 
         self.log.debug(f"runtime start ts_now: {format_ms(self.clock.now_ms())}")
-        started = time.perf_counter()
+        pt_start_ts_ms = pt_now_ts_ms()
 
         # Mark runtime active.
         self.running = True
@@ -86,9 +85,9 @@ class Runtime:
         await self.data.start()
 
         # Start signaler.
-        t0 = time.perf_counter()
+        pt_signaler_start_ts_ms = pt_now_ts_ms()
         await self.signaler.start(self.data, self.clock.now_ms())
-        self.add_timing("start_signaler_start", time.perf_counter() - t0)
+        self.add_timing_ms("start_signaler_start", pt_now_ts_ms() - pt_signaler_start_ts_ms)
         self.merge_timing("start_signaler_start", self.signaler.timing)
         self.signaler.timing.clear()
 
@@ -102,12 +101,12 @@ class Runtime:
         await self.executor.start()
 
         # Save start timing.
-        self.add_timing("start", time.perf_counter() - started)
+        self.add_timing_ms("start", pt_now_ts_ms() - pt_start_ts_ms)
 
     async def loop(self) -> None:
         """Run events until the runtime exits, then build results."""
 
-        started = time.perf_counter()
+        pt_loop_ts_ms = pt_now_ts_ms()
 
         # Run event loop.
         if self.mode in {Mode.BACKTEST, Mode.SWEEP}:
@@ -120,7 +119,7 @@ class Runtime:
 
         # Build result.
         self.result = self.executor.result(self.bars_processed)
-        self.add_timing("loop", time.perf_counter() - started)
+        self.add_timing_ms("loop", pt_now_ts_ms() - pt_loop_ts_ms)
         self.results = {
             "performance": asdict(self.result),
             "telemetry": {
@@ -166,12 +165,12 @@ class Runtime:
         self.telemetry.loops += 1
 
         # Read market.
-        started = time.perf_counter()
+        pt_loop_once_ts_ms = pt_now_ts_ms()
         snapshot = await self.market_snapshot(self.clock.now_ms())
 
         # Skip empty signaler input.
         if not self.signaler.observe(snapshot):
-            self.add_timing("loop_loop_once", time.perf_counter() - started)
+            self.add_timing_ms("loop_loop_once", pt_now_ts_ms() - pt_loop_once_ts_ms)
             self.log_telemetry()
             self.exit_if_max_loop()
             return
@@ -185,37 +184,37 @@ class Runtime:
         risk_score = await self.risk.score()
         self.log.debug(f"risk_score={risk_score} ts_now: {format_ms(self.clock.now_ms())}")
         if await self.risk.exit():
-            self.add_timing("loop_loop_once", time.perf_counter() - started)
+            self.add_timing_ms("loop_loop_once", pt_now_ts_ms() - pt_loop_once_ts_ms)
             self.exit("risk")
             return
 
         # Generate signal.
-        t0 = time.perf_counter()
+        pt_signaler_loop_ts_ms = pt_now_ts_ms()
         decision = await self.signaler.loop_once()
-        self.add_timing("loop_loop_once_signaler_loop", time.perf_counter() - t0)
+        self.add_timing_ms("loop_loop_once_signaler_loop", pt_now_ts_ms() - pt_signaler_loop_ts_ms)
         if decision.event == "exit":
             self.telemetry.signal_exits += 1
         elif decision.event == "entry":
             self.telemetry.signal_entries += 1
 
         if await self.signaler.exit():
-            self.add_timing("loop_loop_once", time.perf_counter() - started)
+            self.add_timing_ms("loop_loop_once", pt_now_ts_ms() - pt_loop_once_ts_ms)
             self.exit("signaler")
             return
 
         # Execute signal.
-        t0 = time.perf_counter()
+        pt_executor_loop_ts_ms = pt_now_ts_ms()
         await self.executor.loop_once(decision.bar, decision.signal)
-        self.add_timing("loop_loop_once_executor_loop", time.perf_counter() - t0)
+        self.add_timing_ms("loop_loop_once_executor_loop", pt_now_ts_ms() - pt_executor_loop_ts_ms)
         if await self.executor.exit():
-            self.add_timing("loop_loop_once", time.perf_counter() - started)
+            self.add_timing_ms("loop_loop_once", pt_now_ts_ms() - pt_loop_once_ts_ms)
             self.exit("max_cycles")
             return
 
         # Finish loop.
         self.log_telemetry()
         self.exit_if_max_loop()
-        self.add_timing("loop_loop_once", time.perf_counter() - started)
+        self.add_timing_ms("loop_loop_once", pt_now_ts_ms() - pt_loop_once_ts_ms)
 
     async def market_snapshot(self, now_ms: int) -> MarketSnapshot:
         """Read and log the current market snapshot."""
@@ -243,14 +242,14 @@ class Runtime:
 
     async def stop(self) -> None:
         self.log.debug(f"runtime stop ts_now: {format_ms(self.clock.now_ms())}")
-        started = time.perf_counter()
+        pt_stop_ts_ms = pt_now_ts_ms()
         try:
             self.exit("stop")
             await self.signaler.stop()
             await self.risk.stop()
             await self.data.stop()
         finally:
-            self.add_timing("stop", time.perf_counter() - started)
+            self.add_timing_ms("stop", pt_now_ts_ms() - pt_stop_ts_ms)
             self.nuubot.stop()
 
     def log_telemetry(self) -> None:
@@ -261,9 +260,9 @@ class Runtime:
         if self.config.runtime.max_loop != 0 and self.loop_count >= self.config.runtime.max_loop:
             self.exit("max_loop")
 
-    def add_timing(self, key: str, seconds: float) -> None:
+    def add_timing_ms(self, key: str, ms: int) -> None:
         key = f"{key}_ms"
-        self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
+        self.timing[key] = self.timing.get(key, 0) + ms
 
     def merge_timing(self, prefix: str, timing: dict[str, int]) -> None:
         for key, value in timing.items():

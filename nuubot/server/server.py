@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 import logging
-import time
 from typing import TYPE_CHECKING
 
 import uvicorn
@@ -10,6 +9,7 @@ from uvicorn.config import LOGGING_CONFIG
 
 from nuubot import nuubot_setup
 from nuubot.core.logger import logger
+from nuubot.core.telemetry import pt_now_ts_ms
 from nuubot.server.botmgr import botmgr_setup
 from nuubot.server.sweepmgr import sweepmgr_setup
 from nuubot.webgui.app import WebGui
@@ -37,15 +37,14 @@ class Server:
         return self
 
     def stop(self) -> None:
-        stime = time.perf_counter()
+        pt_stop_ts_ms = pt_now_ts_ms()
         log.info("Server STOPPING...")
         if self.sweepmgr is not None:
             for result_thread in list(self.sweepmgr.result_threads.values()):
                 result_thread.join()
         if self.nuubot is not None:
             self.nuubot.stop()
-        etime = time.perf_counter()
-        log.info("Server STOPPED in %.3f secs.", etime - stime)
+        log.info("Server STOPPED in %.3f secs.", (pt_now_ts_ms() - pt_stop_ts_ms) / 1000)
 
 
 class UvicornMessageFilter(logging.Filter):
@@ -71,7 +70,7 @@ def main() -> None:
     """Start the Nuubot web server."""
 
     # Start timing.
-    stime = time.perf_counter()
+    pt_start_ts_ms = pt_now_ts_ms()
     log.info("Server STARTING...")
 
     # Initialize server.
@@ -79,8 +78,7 @@ def main() -> None:
     config = server.nuubot.config.server
 
     # Log startup.
-    etime = time.perf_counter()
-    log.info("Server STARTED in %.3f secs.", etime - stime)
+    log.info("Server STARTED in %.3f secs.", (pt_now_ts_ms() - pt_start_ts_ms) / 1000)
 
     # Run web server.
     uvicorn.run(

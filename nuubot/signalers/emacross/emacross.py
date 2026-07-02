@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nuubot.core.dtypes import Bar, Signal
+from nuubot.core.dtypes import Bar, DataReq, Signal
 from nuubot.core.models.mconfig import SignalerConfig
 
 
@@ -21,12 +21,22 @@ class SignalerEmaCross:
         self.slow_ema: float | None = None
         self.previous_diff: float | None = None
         self.count = 0
+        self.warmup_bars = 0
 
     async def init(self) -> None:
         pass
 
-    async def start(self, history: list[Bar]) -> None:
-        for bar in history[-self.required_bars :]:
+    def data_req(self, symbol: str) -> list[DataReq]:
+        return [DataReq(symbol, self.interval, self.required_bars)]
+
+    async def start(self, bars: list[Bar], start_ms: int, stop_ms: int) -> None:
+        _ = stop_ms
+        history = [bar for bar in bars if bar.ts_ms < start_ms]
+        warmup = history[-self.required_bars :]
+        if len(warmup) < self.required_bars:
+            raise RuntimeError(f"not enough warmup bars: need={self.required_bars} got={len(warmup)}")
+        self.warmup_bars = len(warmup)
+        for bar in warmup:
             if bar.closed:
                 await self._calc(bar)
 

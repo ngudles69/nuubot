@@ -5,13 +5,13 @@ from dataclasses import asdict, dataclass, field
 import json
 import logging
 from pathlib import Path
-import time
 from typing import Any
 
-from nuubot.core.dtypes import Bar, Signal
+from nuubot.core.dtypes import Bar, DataReq, Signal
 from nuubot.core.format import format_ms
 from nuubot.core.logger import LOG_DIR, logger
 from nuubot.core.market_data import date_ms, read_binance_file
+from nuubot.core.telemetry import pt_now_ts_ms
 from nuubot.datastore import BotrunRow, Datastore, SweeprunRow
 from nuubot.signalers.emacross import SignalerEmaCross
 from nuubot.sweeps.models import SweeprunConfig
@@ -37,19 +37,21 @@ class Sweeprun:
     run_log: Any | None = None
     log_path: Path | None = None
     timing: dict[str, int] = field(default_factory=dict)
-    started: float = 0.0
+    pt_total_ts_ms: int = 0
     pending_signal: Signal = field(default_factory=Signal)
     bars_processed: int = 0
     warmup_bars: int = 0
     entry_signals: int = 0
     exit_signals: int = 0
     last_bar: Bar | None = None
+    start_ms: int = 0
+    stop_ms: int = 0
 
     async def execute(self) -> dict[str, Any]:
         """Run the full process-pool sweeprun lifecycle."""
 
         # Start sweeprun.
-        self.start()
+        await self.start()
 
         # Run active events.
         await self.loop()
@@ -57,12 +59,12 @@ class Sweeprun:
         # Finish sweeprun.
         return await self.stop()
 
-    def start(self) -> None:
+    async def start(self) -> None:
         """Initialize, validate, and prepare one sweeprun for the event loop."""
 
         # Start timing.
-        self.started = time.perf_counter()
-        t0 = time.perf_counter()
+        self.pt_total_ts_ms = pt_now_ts_ms()
+        pt_start_ts_ms = self.pt_total_ts_ms
 
         # Load sweeprun row.
         tx = self.datastore.tx(Path(self.db_path))
@@ -98,22 +100,17 @@ class Sweeprun:
         # Store config.
         self.config = config
 
-        # Load bars.
-        load_started = time.perf_counter()
-        self.bars = load_bars(config)
-        self.record_timing("load", time.perf_counter() - load_started)
-
         # Create run log.
         self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
         self.run_log = logger(self.log_path.name)
 
         # Build signaler.
-        signaler_started = time.perf_counter()
+        pt_signaler_init_ts_ms = pt_now_ts_ms()
         self.signaler = SignalerEmaCross(config.signaler)
-        self.record_timing("signaler_init", time.perf_counter() - signaler_started)
+        self.record_timing_ms("signaler_init", pt_now_ts_ms() - pt_signaler_init_ts_ms)
 
         # Build executor.
-        executor_started = time.perf_counter()
+        pt_executor_init_ts_ms = pt_now_ts_ms()
         self.executor = ExecutorTrade(
             TradeConfig(
                 self.sweeprun_id,
@@ -125,10 +122,38 @@ class Sweeprun:
             ),
             NOOP_LOG,
         )
-        self.record_timing("executor_init", time.perf_counter() - executor_started)
+        self.record_timing_ms("executor_init", pt_now_ts_ms() - pt_executor_init_ts_ms)
+
+        # Select active window.
+        self.start_ms = date_ms(config.sweeprun.start)
+        self.stop_ms = date_ms(config.sweeprun.end)
+
+        # Get required data.
+        data_req = self.signaler.data_req(config.executor.symbol) + self.executor.data_req(config.executor.interval)
+
+        # Load required data.
+        pt_load_ts_ms = pt_now_ts_ms()
+        self.bars = load_bars(config, data_req)
+        self.record_timing_ms("load", pt_now_ts_ms() - pt_load_ts_ms)
+
+        self.run_log.info(
+            f"sweeprun_start worker={self.worker_name} sweep_id={self.sweep_id} sweeprun_id={self.sweeprun_id} "
+            f"symbol={config.executor.symbol} interval={config.executor.interval}"
+        )
+
+        # Start signaler.
+        pt_signaler_start_ts_ms = pt_now_ts_ms()
+        await self.signaler.start(self.bars, self.start_ms, self.stop_ms)
+        self.warmup_bars = self.signaler.warmup_bars
+        self.record_timing_ms("signaler_start", pt_now_ts_ms() - pt_signaler_start_ts_ms)
+
+        # Start executor.
+        pt_executor_start_ts_ms = pt_now_ts_ms()
+        await self.executor.start()
+        self.record_timing_ms("executor_start", pt_now_ts_ms() - pt_executor_start_ts_ms)
 
         # Save start timing.
-        self.record_timing("start", time.perf_counter() - t0)
+        self.record_timing_ms("start", pt_now_ts_ms() - pt_start_ts_ms)
 
     async def loop(self) -> None:
         """Prepare the active window and execute one pass per event."""
@@ -137,40 +162,15 @@ class Sweeprun:
         if self.config is None or self.bars is None or self.signaler is None or self.executor is None or self.run_log is None:
             raise RuntimeError("sweeprun setup incomplete")
 
-        # Select active window.
-        start_ms = date_ms(self.config.sweeprun.start)
-        stop_ms = date_ms(self.config.sweeprun.end)
-
-        # Prepare warmup.
-        warmup = [bar for bar in self.bars if bar.ts_ms < start_ms][-self.signaler.required_bars :]
-        if len(warmup) < self.signaler.required_bars:
-            raise RuntimeError(f"not enough warmup bars: need={self.signaler.required_bars} got={len(warmup)}")
-        self.warmup_bars = len(warmup)
-
-        self.run_log.info(
-            f"sweeprun_start worker={self.worker_name} sweep_id={self.sweep_id} sweeprun_id={self.sweeprun_id} "
-            f"symbol={self.config.executor.symbol} interval={self.config.executor.interval} warmup_bars={len(warmup)}"
-        )
-
-        # Start runtime components.
-        start_started = time.perf_counter()
-        t0 = time.perf_counter()
-        await self.signaler.start(warmup)
-        self.record_timing("signaler_start", time.perf_counter() - t0)
-        t0 = time.perf_counter()
-        await self.executor.start()
-        self.record_timing("executor_start", time.perf_counter() - t0)
-        self.record_timing("components_start", time.perf_counter() - start_started)
-
         # Run active events.
-        loop_started = time.perf_counter()
+        pt_loop_ts_ms = pt_now_ts_ms()
         for bar in self.bars:
-            if bar.ts_ms < start_ms or bar.ts_ms > stop_ms:
+            if bar.ts_ms < self.start_ms or bar.ts_ms > self.stop_ms:
                 continue
             await self.next(bar)
 
         # Save loop timing.
-        self.record_timing("loop", time.perf_counter() - loop_started)
+        self.record_timing_ms("loop", pt_now_ts_ms() - pt_loop_ts_ms)
 
     async def stop(self) -> dict[str, Any]:
         """Stop execution, calculate results, and persist final sweeprun state."""
@@ -180,15 +180,15 @@ class Sweeprun:
             raise RuntimeError("sweeprun must be started before stop")
 
         # Stop executor.
-        stop_started = time.perf_counter()
-        t0 = time.perf_counter()
+        pt_stop_ts_ms = pt_now_ts_ms()
+        pt_executor_stop_ts_ms = pt_now_ts_ms()
         await self.executor.stop(self.last_bar)
 
         # Save stop and total timing.
-        self.record_timing("executor_stop", time.perf_counter() - t0)
-        self.record_timing("stop", time.perf_counter() - stop_started)
-        if self.started:
-            self.record_timing("total", time.perf_counter() - self.started)
+        self.record_timing_ms("executor_stop", pt_now_ts_ms() - pt_executor_stop_ts_ms)
+        self.record_timing_ms("stop", pt_now_ts_ms() - pt_stop_ts_ms)
+        if self.pt_total_ts_ms:
+            self.record_timing_ms("total", pt_now_ts_ms() - self.pt_total_ts_ms)
 
         # Calculate result.
         trade_result = asdict(self.executor.result(self.bars_processed))
@@ -235,14 +235,14 @@ class Sweeprun:
             raise RuntimeError("sweeprun must be started before next")
 
         # Execute pending signal.
-        t0 = time.perf_counter()
+        pt_executor_next_ts_ms = pt_now_ts_ms()
         await self.executor.loop_once(event, self.pending_signal)
-        self.record_timing("executor_next", time.perf_counter() - t0)
+        self.record_timing_ms("executor_next", pt_now_ts_ms() - pt_executor_next_ts_ms)
 
         # Generate next signal.
-        t0 = time.perf_counter()
+        pt_signaler_next_ts_ms = pt_now_ts_ms()
         signal = await self.signaler.loop_once(event)
-        self.record_timing("signaler_next", time.perf_counter() - t0)
+        self.record_timing_ms("signaler_next", pt_now_ts_ms() - pt_signaler_next_ts_ms)
 
         # Update counters.
         self.pending_signal = signal
@@ -253,9 +253,9 @@ class Sweeprun:
         if signal.exit:
             self.exit_signals += 1
 
-    def record_timing(self, key: str, seconds: float) -> None:
+    def record_timing_ms(self, key: str, ms: int) -> None:
         key = f"timing_{key}_ms"
-        self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
+        self.timing[key] = self.timing.get(key, 0) + ms
 
     def _save_result(self, result: dict[str, Any]) -> None:
         """Persist final sweeprun result."""
@@ -290,19 +290,23 @@ class Sweeprun:
             tx.close()
 
 
-def load_bars(config: SweeprunConfig) -> list[Bar]:
+def load_bars(config: SweeprunConfig, data_req: list[DataReq]) -> list[Bar]:
     """Load market bars for one sweeprun."""
 
-    root = Path(config.sweeprun.data_dir) / config.executor.symbol / config.executor.interval
+    streams = {(req.symbol, req.interval) for req in data_req}
+    if len(streams) != 1:
+        raise RuntimeError(f"sweep supports one data stream for now: {sorted(streams)}")
+    symbol, interval = next(iter(streams))
+    root = Path(config.sweeprun.data_dir) / symbol / interval
     if not root.exists():
         raise FileNotFoundError(f"missing Binance data folder: {root}")
     bars: list[Bar] = []
-    for path in sorted(root.glob(f"{config.executor.symbol}-{config.executor.interval}-*")):
+    for path in sorted(root.glob(f"{symbol}-{interval}-*")):
         bars.extend(read_binance_file(path))
     end_ms = date_ms(config.sweeprun.end)
     bars = [bar for bar in bars if bar.ts_ms <= end_ms]
     if not any(date_ms(config.sweeprun.start) <= bar.ts_ms <= end_ms for bar in bars):
-        raise RuntimeError(f"no Binance bars matched {config.executor.symbol} {config.executor.interval} {config.sweeprun.start}..{config.sweeprun.end}")
+        raise RuntimeError(f"no Binance bars matched {symbol} {interval} {config.sweeprun.start}..{config.sweeprun.end}")
     return bars
 
 

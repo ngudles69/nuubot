@@ -44,6 +44,13 @@ class Bar:
     closed: bool = True
 
 
+@dataclass(frozen=True)
+class DataReq:
+    symbol: str
+    interval: str
+    warmup_bars: int = 0
+
+
 @dataclass(order=True)
 class ReplayEvent:
     ts_ms: int

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
 from typing import Any, Literal
 
 from nuubot.core.dtypes import Bar, MarketSnapshot, Signal
 from nuubot.core.format import format_ms
 from nuubot.core.models.mconfig import BotrunConfig
+from nuubot.core.telemetry import pt_now_ts_ms
 from nuubot.signalers.emacross import SignalerEmaCross
 from nuubot.signalers.startnow import SignalerStartNow
 
@@ -30,19 +30,19 @@ class Signaler:
 
     async def init(self) -> None:
         for signaler in self.items:
-            t0 = time.perf_counter()
+            pt_item_init_ts_ms = pt_now_ts_ms()
             await signaler.init()
-            self.add_timing("item_init", time.perf_counter() - t0)
+            self.add_timing_ms("item_init", pt_now_ts_ms() - pt_item_init_ts_ms)
 
     async def start(self, data: Any, now_ms: int) -> None:
         for signaler in self.items:
-            t0 = time.perf_counter()
+            pt_data_load_ts_ms = pt_now_ts_ms()
             history = await data.history(signaler.interval, signaler.required_bars)
-            self.add_timing("data_load", time.perf_counter() - t0)
+            self.add_timing_ms("data_load", pt_now_ts_ms() - pt_data_load_ts_ms)
             self.log.info(f"signaler_seed name={signaler.__class__.__name__} bars={len(history)} ts_now: {format_ms(now_ms)}")
-            t0 = time.perf_counter()
-            await signaler.start(history)
-            self.add_timing("item_start", time.perf_counter() - t0)
+            pt_item_start_ts_ms = pt_now_ts_ms()
+            await signaler.start(history, now_ms, now_ms)
+            self.add_timing_ms("item_start", pt_now_ts_ms() - pt_item_start_ts_ms)
             self._mark_closed_history(signaler.interval, history)
 
     def observe(self, snapshot: MarketSnapshot) -> bool:
@@ -126,9 +126,9 @@ class Signaler:
         if self.last_bar is None or last.ts_ms >= self.last_bar.ts_ms:
             self.last_bar = last
 
-    def add_timing(self, key: str, seconds: float) -> None:
+    def add_timing_ms(self, key: str, ms: int) -> None:
         key = f"{key}_ms"
-        self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
+        self.timing[key] = self.timing.get(key, 0) + ms
 
 
 def build_signaler(config: Any) -> Any:

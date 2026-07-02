@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from nuubot.core.context import IdCtx
-from nuubot.core.dtypes import Bar, BotRunResult, Signal
+from nuubot.core.dtypes import Bar, BotRunResult, DataReq, Signal
 from nuubot.core.format import format_ms
 from nuubot.core.logger import logger
 from nuubot.datastore import Datastore, Fill, Order, Position
@@ -212,6 +212,9 @@ class ExecutorTrade:
 
     async def init(self) -> None:
         pass
+
+    def data_req(self, interval: str) -> list[DataReq]:
+        return [DataReq(self.config.symbol, interval, 0)]
 
     async def start(self) -> None:
         self.ledger.start()

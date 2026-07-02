@@ -40,6 +40,7 @@ when a short name is clearer than the full word.
 | `ts` | timestamp | timestamp field suffix |
 | `ms` | milliseconds | timing/duration suffix |
 | `s` | seconds | timing/duration suffix |
+| `pt` | performance timing | local performance timing marker prefix |
 | `stime` | start time | local timing variable |
 | `etime` | end time | local timing variable |
 | `ctx` / `Ctx` | context | local variable / class suffix |

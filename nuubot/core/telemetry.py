@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
+
+
+def pt_now_ts_ms() -> int:
+    return time.perf_counter_ns() // 1_000_000
 
 
 @dataclass

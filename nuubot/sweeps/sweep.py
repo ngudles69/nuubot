@@ -5,9 +5,9 @@ from dataclasses import dataclass
 import json
 import signal
 import threading
-import time
 from typing import Any
 
+from nuubot.core.telemetry import pt_now_ts_ms
 from nuubot.datastore import AccountRow, BotrunRow, Datastore, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
 from nuubot.sweeps.template import GroupSweepConfig, generate_sweepruns
 from nuubot.sweeps.sweeprun import run_sweeprun
@@ -71,10 +71,10 @@ class Sweep:
                     )
 
                 # Start finisher.
-                started = time.perf_counter()
+                pt_sweep_ts_ms = pt_now_ts_ms()
                 result_thread = threading.Thread(
                     target=finish_sweep,
-                    args=(self.datastore, db, self.sweep_id, futures, pool, started, workers, self.result_threads),
+                    args=(self.datastore, db, self.sweep_id, futures, pool, pt_sweep_ts_ms, workers, self.result_threads),
                     name=f"sweep_finish_sw_{self.sweep_id}",
                 )
                 self.result_threads[self.sweep_id] = result_thread
@@ -182,7 +182,7 @@ def finish_sweep(
     sweep_id: int,
     futures: list[tuple[int, Future]],
     pool: ProcessPoolExecutor,
-    started: float,
+    pt_sweep_ts_ms: int,
     workers: int,
     result_threads: dict[int, threading.Thread] | None = None,
 ) -> dict[str, Any]:
@@ -231,7 +231,7 @@ def finish_sweep(
             for row in tx.select(SweeprunRow):
                 row_results = json.loads(row.results_json or "{}")
                 bars += int(row_results.get("telemetry", {}).get("bars") or row_results.get("bars") or 0)
-            total_ms = int((time.perf_counter() - started) * 1000)
+            total_ms = pt_now_ts_ms() - pt_sweep_ts_ms
             total_seconds = total_ms / 1000
             timing = {
                 "total_ms": total_ms,
