@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from nuubot.core.models.mconfig import RiskConfig, SignalerConfig
@@ -23,7 +21,7 @@ class SweeprunExecutorConfig(BaseModel):
 
     symbol: str
     interval: str
-    name: Literal["tradebot"]
+    name: str
     take_profit_pct: float = Field(ge=0)
     stop_loss_pct: float = Field(ge=0)
     max_cycles: int = Field(ge=0)

@@ -58,31 +58,20 @@ class Sweeprun:
         return await self.stop()
 
     def start(self) -> None:
-        """Start the sweeprun, mark its row running, and initialize runtime objects."""
+        """Initialize, validate, and prepare one sweeprun for the event loop."""
 
         # Start timing.
         self.started = time.perf_counter()
         t0 = time.perf_counter()
 
-        # Open sweeprun transaction.
+        # Load sweeprun row.
         tx = self.datastore.tx(Path(self.db_path))
         tx.start()
-        config_json = ""
         try:
-            # Get sweeprun record from DB.
             sweeprun = tx.get(SweeprunRow, sweeprun_id=self.sweeprun_id)
-
-            # Validate sweep ownership.
             if sweeprun.sweep_id != self.sweep_id:
                 raise RuntimeError(f"sweeprun row wrong sweep: {self.sweeprun_id}")
-
-            # Keep config for runtime setup.
             config_json = sweeprun.config_json
-
-            # Set status to running.
-            sweeprun.status = "running"
-
-            # Update DB.
             tx.commit()
         except Exception:
             tx.rollback()
@@ -93,26 +82,60 @@ class Sweeprun:
         # Validate config.
         config = SweeprunConfig.model_validate(json.loads(config_json))
 
+        # Mark row running.
+        tx = self.datastore.tx(Path(self.db_path))
+        tx.start()
+        try:
+            sweeprun = tx.get(SweeprunRow, sweeprun_id=self.sweeprun_id)
+            sweeprun.status = "running"
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
+
         # Store config.
         self.config = config
 
-        # Build runtime.
-        self._setup_runtime()
+        # Load bars.
+        load_started = time.perf_counter()
+        self.bars = load_bars(config)
+        self.record_timing("load", time.perf_counter() - load_started)
+
+        # Create run log.
+        self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
+        self.run_log = logger(self.log_path.name)
+
+        # Build signaler.
+        signaler_started = time.perf_counter()
+        self.signaler = SignalerEmaCross(config.signaler)
+        self.record_timing("signaler_init", time.perf_counter() - signaler_started)
+
+        # Build executor.
+        executor_started = time.perf_counter()
+        self.executor = ExecutorTrade(
+            TradeConfig(
+                self.sweeprun_id,
+                config.executor.take_profit_pct,
+                config.executor.stop_loss_pct,
+                config.executor.max_cycles,
+                config.executor.symbol,
+                "default",
+            ),
+            NOOP_LOG,
+        )
+        self.record_timing("executor_init", time.perf_counter() - executor_started)
 
         # Save start timing.
         self.record_timing("start", time.perf_counter() - t0)
 
     async def loop(self) -> None:
-        """Load input data, prepare warmup, and execute one pass per active event."""
+        """Prepare the active window and execute one pass per event."""
 
         # Validate runtime is ready.
-        if self.config is None or self.signaler is None or self.executor is None or self.run_log is None:
+        if self.config is None or self.bars is None or self.signaler is None or self.executor is None or self.run_log is None:
             raise RuntimeError("sweeprun setup incomplete")
-
-        # Load bars.
-        t0 = time.perf_counter()
-        self.bars = load_sweeprun_bars(self.config)
-        self.record_timing("load", time.perf_counter() - t0)
 
         # Select active window.
         start_ms = date_ms(self.config.sweeprun.start)
@@ -230,46 +253,6 @@ class Sweeprun:
         if signal.exit:
             self.exit_signals += 1
 
-    def _setup_runtime(self) -> None:
-        """Build runtime objects for one sweeprun."""
-
-        # Validate config is ready.
-        if self.config is None:
-            raise RuntimeError("sweeprun must be started before setup")
-
-        # Start init timing.
-        init_started = time.perf_counter()
-
-        # Create run log.
-        self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
-        self.run_log = logger(self.log_path.name)
-
-        # Validate supported runtime.
-        validate_supported_sweeprun_runtime(self.config)
-
-        # Build signaler.
-        t0 = time.perf_counter()
-        self.signaler = SignalerEmaCross(self.config.signaler)
-        self.record_timing("signaler_init", time.perf_counter() - t0)
-
-        # Build executor.
-        t0 = time.perf_counter()
-        self.executor = ExecutorTrade(
-            TradeConfig(
-                self.sweeprun_id,
-                self.config.executor.take_profit_pct,
-                self.config.executor.stop_loss_pct,
-                self.config.executor.max_cycles,
-                self.config.executor.symbol,
-                "default",
-            ),
-            NOOP_LOG,
-        )
-        self.record_timing("executor_init", time.perf_counter() - t0)
-
-        # Save init timing.
-        self.record_timing("init", time.perf_counter() - init_started)
-
     def record_timing(self, key: str, seconds: float) -> None:
         key = f"timing_{key}_ms"
         self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
@@ -307,14 +290,7 @@ class Sweeprun:
             tx.close()
 
 
-def validate_supported_sweeprun_runtime(config: SweeprunConfig) -> None:
-    if config.signaler.name != "emacross":
-        raise ValueError(f"sweep supports emacross signaler only: {config.signaler.name}")
-    if config.executor.name != "tradebot":
-        raise ValueError(f"sweep supports tradebot executor only: {config.executor.name}")
-
-
-def load_sweeprun_bars(config: SweeprunConfig) -> list[Bar]:
+def load_bars(config: SweeprunConfig) -> list[Bar]:
     """Load market bars for one sweeprun."""
 
     root = Path(config.sweeprun.data_dir) / config.executor.symbol / config.executor.interval
@@ -331,11 +307,14 @@ def load_sweeprun_bars(config: SweeprunConfig) -> list[Bar]:
 
 
 def run_sweeprun(db_path: str, sweep_id: int, sweeprun_id: int, worker_name: str) -> dict[str, Any]:
-    """Run one sweeprun inside a process-pool worker."""
+    """Sweeprun process-pool entry point for one sweeprun."""
 
     try:
-        # Process-pool entry point for one generated sweeprun.
-        return asyncio.run(Sweeprun(db_path, sweep_id, sweeprun_id, worker_name).execute())
+        # Create sweeprun object.
+        sweeprun = Sweeprun(db_path, sweep_id, sweeprun_id, worker_name)
+
+        # Execute sweeprun lifecycle.
+        return asyncio.run(sweeprun.execute())
     except Exception as exc:
         # Save worker failure.
         datastore = Datastore()

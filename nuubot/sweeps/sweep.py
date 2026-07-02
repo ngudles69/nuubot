@@ -51,16 +51,16 @@ class Sweep:
             # Reset sweeprun rows.
             sweeprun_ids = self._insert_sweepruns(generated_configs)
 
-            executor = None
+            pool = None
             try:
                 # Submit sweepruns.
-                executor = ProcessPoolExecutor(max_workers=workers, initializer=ignore_sigint)
+                pool = ProcessPoolExecutor(max_workers=workers, initializer=ignore_sigint)
                 futures = []
                 for sweeprun_id in sweeprun_ids:
                     futures.append(
                         (
                             sweeprun_id,
-                            executor.submit(
+                            pool.submit(
                                 run_sweeprun,
                                 str(self.datastore.dbpath(db)),
                                 self.sweep_id,
@@ -74,15 +74,15 @@ class Sweep:
                 started = time.perf_counter()
                 result_thread = threading.Thread(
                     target=finish_sweep,
-                    args=(self.datastore, db, self.sweep_id, futures, executor, started, workers, self.result_threads),
+                    args=(self.datastore, db, self.sweep_id, futures, pool, started, workers, self.result_threads),
                     name=f"sweep_finish_sw_{self.sweep_id}",
                 )
                 self.result_threads[self.sweep_id] = result_thread
                 result_thread.start()
             except Exception as exc:
                 # Mark launch failure.
-                if executor is not None:
-                    executor.shutdown(wait=True, cancel_futures=True)
+                if pool is not None:
+                    pool.shutdown(wait=True, cancel_futures=True)
                 self.result_threads.pop(self.sweep_id, None)
                 self._mark_sweep_launch_failed(str(exc))
                 raise
@@ -181,7 +181,7 @@ def finish_sweep(
     db: str,
     sweep_id: int,
     futures: list[tuple[int, Future]],
-    executor: ProcessPoolExecutor,
+    pool: ProcessPoolExecutor,
     started: float,
     workers: int,
     result_threads: dict[int, threading.Thread] | None = None,
@@ -253,6 +253,6 @@ def finish_sweep(
         finally:
             tx.close()
     finally:
-        executor.shutdown(wait=True, cancel_futures=False)
+        pool.shutdown(wait=True, cancel_futures=False)
         if result_threads is not None:
             result_threads.pop(sweep_id, None)

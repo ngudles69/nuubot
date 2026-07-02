@@ -3,15 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import tomllib
 
-from nuubot.sweeps.sweeprun import validate_supported_sweeprun_runtime
-from nuubot.sweeps.models import SweeprunConfig
 from nuubot.sweeps.template import expand_sweep_template, generate_sweepruns
 
 
 def main() -> None:
     expands_2025_halves_template_to_36_sweepruns()
     rejects_bad_labels_after_toml_parse()
-    rejects_sweeprun_runtime_multiple_signalers()
 
 
 def expands_2025_halves_template_to_36_sweepruns() -> None:
@@ -65,26 +62,6 @@ max_cycles = 0
         assert "invalid data label: bad/label" in str(exc)
     else:
         raise AssertionError("bad quoted label should fail")
-
-
-def rejects_sweeprun_runtime_multiple_signalers() -> None:
-    config = SweeprunConfig.model_validate(
-        {
-            "sweeprun": {
-                "start": "2025-01-01",
-                "end": "2025-01-02",
-                "data_dir": "workspace/data/binance/raw/spot/monthly/klines",
-            },
-            "signaler": {"name": "other", "interval": "1h", "params": {"fast": 5, "slow": 20}},
-            "executor": {"symbol": "BTCUSDT", "interval": "1h", "name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
-        }
-    )
-    try:
-        validate_supported_sweeprun_runtime(config)
-    except ValueError as exc:
-        assert "sweep supports emacross signaler only: other" in str(exc)
-    else:
-        raise AssertionError("unsupported signaler should fail loud")
 
 
 if __name__ == "__main__":
