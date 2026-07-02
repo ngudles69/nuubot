@@ -30,16 +30,16 @@ class Runtime:
     def __init__(self, config: BotrunConfig) -> None:
         self.nuubot = nuubot_setup()
         self.config = config
-        self.mode = runtime_mode(config)
+        self.mode = config.runtime.mode
         self.log = logger(bot_log_path(config))
-        self.clock = create_clock(config)
+        self.clock = build_clock(config)
         self.timing: dict[str, int] = {}
         self.results: dict[str, Any] = {}
         self.telemetry = Telemetry()
-        self.data = create_data(config, self.telemetry, self.log)
+        self.data = build_data_engine(config, self.telemetry, self.log)
         self.signaler = Signaler(config, self.log)
         self.risk = Risk(config.risk)
-        self.executor = create_executor(config, self.log)
+        self.executor = build_executor(config, self.log)
         self.loop_count = 0
         self.bars_processed = 0
         self.last_bar: Bar | None = None
@@ -47,43 +47,78 @@ class Runtime:
         self.running = False
 
     async def init(self) -> None:
+        """Initialize runtime components."""
+
         self.log.debug(f"runtime init ts_now: {format_ms(self.clock.now_ms())}")
         started = time.perf_counter()
+
+        # Initialize data.
         t0 = time.perf_counter()
         await self.data.init()
         self.add_timing("init_data_init", time.perf_counter() - t0)
+
+        # Initialize signaler.
         t0 = time.perf_counter()
         await self.signaler.init()
         self.add_timing("init_signaler_init", time.perf_counter() - t0)
         self.merge_timing("init_signaler_init", self.signaler.timing)
         self.signaler.timing.clear()
+
+        # Initialize risk.
         await self.risk.init()
+
+        # Initialize executor.
         await self.executor.init()
+
+        # Save init timing.
         self.add_timing("init", time.perf_counter() - started)
 
     async def start(self) -> None:
+        """Start runtime components and schedule the runtime loop."""
+
         self.log.debug(f"runtime start ts_now: {format_ms(self.clock.now_ms())}")
         started = time.perf_counter()
+
+        # Mark runtime active.
         self.running = True
+
+        # Start data.
         await self.data.start()
+
+        # Start signaler.
         t0 = time.perf_counter()
         await self.signaler.start(self.data, self.clock.now_ms())
         self.add_timing("start_signaler_start", time.perf_counter() - t0)
         self.merge_timing("start_signaler_start", self.signaler.timing)
         self.signaler.timing.clear()
+
+        # Schedule loop.
         self.clock.set_timer(RUNTIME_TIMER, self.config.runtime.loop_seconds, self.loop_once)
+
+        # Start risk.
         await self.risk.start()
+
+        # Start executor.
         await self.executor.start()
+
+        # Save start timing.
         self.add_timing("start", time.perf_counter() - started)
 
     async def loop(self) -> None:
+        """Run events until the runtime exits, then build results."""
+
         started = time.perf_counter()
+
+        # Run event loop.
         if self.mode in {Mode.BACKTEST, Mode.SWEEP}:
             await self.loop_backtest()
         else:
             await self.clock.run()
 
+        # Stop executor.
         await self.executor.stop(self.last_bar)
+
+        # Build result.
         self.result = self.executor.result(self.bars_processed)
         self.add_timing("loop", time.perf_counter() - started)
         self.results = {
@@ -98,9 +133,13 @@ class Runtime:
         self.log.info("runtime_results ts_now: %s\n%s", format_ms(self.clock.now_ms()), json.dumps(self.results, indent=2, sort_keys=True))
 
     async def loop_backtest(self) -> None:
+        """Replay file data through the runtime clock."""
+
+        # Validate replay runtime.
         if not isinstance(self.data, FileDataEngine) or not isinstance(self.clock, ReplayClock):
             raise RuntimeError("backtest requires FileDataEngine and ReplayClock")
 
+        # Dispatch replay batches.
         for batch in self.data.replay_batches():
             if not self.running:
                 break
@@ -108,30 +147,41 @@ class Runtime:
             await self.data.ingest_replay_batch(batch)
             await self.clock.dispatch_due(batch.ts_ms)
 
+        # Exit exhausted replay.
         if self.running:
             self.exit("no_market")
 
     async def loop_once(self, event: TimeEvent) -> None:
+        """Process one runtime event."""
+
         _ = event
+
+        # Enforce loop limit.
         if self.config.runtime.max_loop != 0 and self.loop_count >= self.config.runtime.max_loop:
             self.exit("max_loop")
             return
 
+        # Count loop.
         self.loop_count += 1
         self.telemetry.loops += 1
 
+        # Read market.
         started = time.perf_counter()
         snapshot = await self.market_snapshot(self.clock.now_ms())
+
+        # Skip empty signaler input.
         if not self.signaler.observe(snapshot):
             self.add_timing("loop_loop_once", time.perf_counter() - started)
             self.log_telemetry()
             self.exit_if_max_loop()
             return
 
+        # Record market progress.
         self.bars_processed += self.signaler.new_bars
         self.telemetry.bars_processed += self.signaler.new_bars
         self.last_bar = self.signaler.last_bar
 
+        # Check risk.
         risk_score = await self.risk.score()
         self.log.debug(f"risk_score={risk_score} ts_now: {format_ms(self.clock.now_ms())}")
         if await self.risk.exit():
@@ -139,6 +189,7 @@ class Runtime:
             self.exit("risk")
             return
 
+        # Generate signal.
         t0 = time.perf_counter()
         decision = await self.signaler.loop_once()
         self.add_timing("loop_loop_once_signaler_loop", time.perf_counter() - t0)
@@ -152,6 +203,7 @@ class Runtime:
             self.exit("signaler")
             return
 
+        # Execute signal.
         t0 = time.perf_counter()
         await self.executor.loop_once(decision.bar, decision.signal)
         self.add_timing("loop_loop_once_executor_loop", time.perf_counter() - t0)
@@ -159,85 +211,15 @@ class Runtime:
             self.add_timing("loop_loop_once", time.perf_counter() - started)
             self.exit("max_cycles")
             return
+
+        # Finish loop.
         self.log_telemetry()
         self.exit_if_max_loop()
         self.add_timing("loop_loop_once", time.perf_counter() - started)
 
-    async def loop_once_target(self, event: TimeEvent) -> None:
-        _ = event
-
-        # Target loop pseudocode for review. Do not wire into Clock yet.
-        #
-        # loop_count += 1
-        # telemetry.loops += 1
-        # now_ms = Clock.now_ms()
-        #
-        # command = CommandServer.next_command()
-        #
-        # if command is kill:
-        #   exit("kill")
-        #   # Runtime exits. Bot state stays recoverable.
-        #   CommandServer.heartbeat()
-        #   return
-        #
-        # if max_loop reached:
-        #   exit("max_loop")
-        #   CommandServer.heartbeat()
-        #   return
-        #
-        # market = Data.snapshot(now_ms)
-        # signaler = Signaler.observe(market)
-        #
-        # Reconcile is a must-do step before any non-kill operation.
-        # Nothing trades, closes, stops, or checks terminal state before this.
-        # Fresh start reconciles to flat/no-op; restart reconciles live state.
-        # executor = Executor.reconcile(market)
-        # if executor is terminal stopped or terminal error:
-        #   exit("terminal")
-        #   CommandServer.heartbeat()
-        #   return
-        #
-        # if command is stop:
-        #   Executor.request_terminal_stop()
-        #
-        # if Executor.is_active():
-        #   risk = Risk.score()
-        #   if Risk.exit():
-        #     Executor.request_terminal_stop()
-        #   if Signaler.exit():
-        #     Executor.request_terminal_stop()
-        #   if Executor.exit():
-        #     Executor.request_terminal_stop()
-        #   if Executor.is_closing():
-        #     Executor.handle_order_exits(market)
-        #     if Executor.is_closed():
-        #       Executor.mark_terminal_stopped()
-        #       exit("stopped")
-        #     end_loop()
-        #     return
-        #
-        # if Executor.is_flat():
-        #   if signaler has no usable entry data:
-        #     end_loop()
-        #     return
-        #   decision = Signaler.loop_once()
-        #   if decision is entry:
-        #     Executor.enter(decision)
-        #   end_loop()
-        #   return
-        #
-        # risk = Risk.score()
-        # Executor.handle_order_exits(market)
-        # if Executor.can_submit_orders():
-        #   Executor.submit_orders(market, signaler, risk)
-        #
-        # end_loop:
-        #   CommandServer.heartbeat()
-        #   owning objects write SQLite status/events
-        #   log telemetry
-        raise NotImplementedError("target runtime loop is pseudocode only")
-
     async def market_snapshot(self, now_ms: int) -> MarketSnapshot:
+        """Read and log the current market snapshot."""
+
         snapshot = await self.data.snapshot(now_ms)
         for interval, bar in sorted(snapshot.bars.items()):
             self.log.debug(
@@ -289,7 +271,7 @@ class Runtime:
             self.timing[merged_key] = self.timing.get(merged_key, 0) + value
 
 
-def create_data(config: BotrunConfig, telemetry: Telemetry, run_log: Any) -> FileDataEngine | WsDataEngine:
+def build_data_engine(config: BotrunConfig, telemetry: Telemetry, run_log: Any) -> FileDataEngine | WsDataEngine:
     if config.runtime.mode == Mode.BACKTEST:
         return FileDataEngine(config, telemetry, run_log)
     if config.runtime.mode == Mode.SWEEP:
@@ -299,13 +281,13 @@ def create_data(config: BotrunConfig, telemetry: Telemetry, run_log: Any) -> Fil
     raise ValueError(f"unsupported mode: {config.runtime.mode}")
 
 
-def create_clock(config: BotrunConfig) -> Clock:
+def build_clock(config: BotrunConfig) -> Clock:
     if config.runtime.mode in {Mode.BACKTEST, Mode.SWEEP}:
         return ReplayClock(config.runtime.min_timer_interval_ms)
     return Clock(config.runtime.min_timer_interval_ms)
 
 
-def create_executor(config: BotrunConfig, run_log: Any) -> ExecutorTrade:
+def build_executor(config: BotrunConfig, run_log: Any) -> ExecutorTrade:
     if config.executor.name != "tradebot":
         raise ValueError(f"unsupported executor: {config.executor.name}")
     trade_config = TradeConfig(config.runtime.bot_id, config.executor.take_profit_pct, config.executor.stop_loss_pct, config.executor.max_cycles)
@@ -313,14 +295,12 @@ def create_executor(config: BotrunConfig, run_log: Any) -> ExecutorTrade:
 
 
 def bot_log_path(config: BotrunConfig) -> str:
-    return f"bot_{runtime_mode(config)}_{config.runtime.bot_id}.log"
-
-
-def runtime_mode(config: BotrunConfig) -> Mode:
-    return config.runtime.mode
+    return f"bot_{config.runtime.mode}_{config.runtime.bot_id}.log"
 
 
 async def run(path: Path) -> Runtime:
+    """Run one bot runtime config file."""
+
     runtime = Runtime(load_botrun_config(path))
     try:
         await runtime.init()

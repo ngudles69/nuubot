@@ -24,6 +24,8 @@ class Position:
         self.symbol = self.ctx.bot_config.market.symbol
 
     def row(self) -> PositionRow:
+        """Build the datastore row for this position."""
+
         size = "1" if self.side == "long" else "-1"
         return PositionRow(
             position_id=self.id,
@@ -75,6 +77,8 @@ class Order:
         self.cloid = f"sweep-{self.sweeprun_id}-{self.bot_id}-{self.position_id}-{self.side}-{self.ts_ms}"
 
     def row(self) -> OrderRow:
+        """Build the datastore row for this order."""
+
         return OrderRow(
             order_id=self.id,
             sweep_id=self.sweep_id,
@@ -131,6 +135,8 @@ class Fill:
         self.symbol = self.ctx.bot_config.market.symbol
 
     def row(self) -> FillRow:
+        """Build the datastore row for this fill."""
+
         return FillRow(
             fill_id=self.id,
             sweep_id=self.sweep_id,

@@ -36,12 +36,16 @@ class SignalerEmaCross:
         return await self._calc(bar)
 
     async def _calc(self, bar: Bar) -> Signal:
+        """Calculate the EMA cross signal for one bar."""
+
+        # Update EMA state.
         self.count += 1
         self.fast_ema = ema(self.fast_ema, bar.close, self.fast_period)
         self.slow_ema = ema(self.slow_ema, bar.close, self.slow_period)
         if self.count < self.slow_period:
             return Signal()
 
+        # Detect cross.
         diff = self.fast_ema - self.slow_ema
         if self.previous_diff is None:
             self.previous_diff = diff

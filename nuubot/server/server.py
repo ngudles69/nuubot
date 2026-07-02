@@ -68,19 +68,21 @@ class UvicornMessageFilter(logging.Filter):
 
 
 def main() -> None:
-    # log start
+    """Start the Nuubot web server."""
+
+    # Start timing.
     stime = time.perf_counter()
     log.info("Server STARTING...")
 
-    # setup server
+    # Initialize server.
     server = Server().init()
     config = server.nuubot.config.server
 
-    # log started
+    # Log startup.
     etime = time.perf_counter()
     log.info("Server STARTED in %.3f secs.", etime - stime)
 
-    # starting server
+    # Run web server.
     uvicorn.run(
         server.webgui.app,
         host=config.host,

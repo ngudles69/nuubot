@@ -45,6 +45,9 @@ def expand_sweep_template(data: dict[str, Any], data_dir: str) -> dict[str, Any]
 
 
 def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Generate concrete sweeprun configs from grouped sweep inputs."""
+
+    # Validate sweep.
     config = GroupSweepConfig.model_validate(data)
     mode = str(config.sweep.get("mode", ""))
     if mode not in {"fast", "standard"}:
@@ -53,6 +56,7 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
     if not data_dir:
         raise RuntimeError("sweep.data_dir is required")
 
+    # Expand groups.
     data_sets = _family_variants("data", config.data)
     signaler_sets = _family_variants("signalers", config.signalers)
     executor_sets = _family_variants("executors", config.executors)
@@ -60,6 +64,7 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     for index, (data_set, signaler_set, executor_set, risk) in enumerate(product(data_sets, signaler_sets, executor_sets, risk_values), start=1):
+        # Build sweeprun meta.
         meta = {
             "data": data_set["label"],
             "signaler": signaler_set["label"],
@@ -67,6 +72,8 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
             "risk": "default",
             "run": f"{index:03d}",
         }
+
+        # Build sweeprun config.
         market = _required_dict(data_set["value"], "market", f"data.{meta['data']}")
         sweeprun = _required_dict(data_set["value"], "sweeprun", f"data.{meta['data']}")
         _validate_window(sweeprun)
@@ -90,6 +97,8 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def expand_object(value: Any) -> list[Any]:
+    """Expand scalar, list, dict, and range sweep values."""
+
     if isinstance(value, dict):
         if set(value) == {"start", "stop", "step"}:
             return _range_values(value)
@@ -116,6 +125,8 @@ def _family_variants(family: str, groups: dict[str, list[dict[str, Any]]]) -> li
 
 
 def _range_values(value: dict[str, Any]) -> list[float | int]:
+    """Expand a sweep range object."""
+
     current = float(value["start"])
     stop = float(value["stop"])
     step = float(value["step"])

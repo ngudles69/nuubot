@@ -1,15 +1,17 @@
-from __future__ import annotations
-
 """Server API routes.
 
 All routes must use the standard response envelope documented in
 `wiki/design/server-api.md`.
 """
 
+from __future__ import annotations
+
 from starlette.responses import JSONResponse
 
 
 def register_api(rt, server) -> None:
+    """Register JSON API routes."""
+
     @rt("/ping")
     def get():
         return ok("ping", "pong")

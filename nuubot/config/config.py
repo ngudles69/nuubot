@@ -27,6 +27,8 @@ def create_config(data: dict[str, Any]) -> AppConfig:
 
 
 def set_networks(config: AppConfig) -> None:
+    """Set data and execution networks from runtime mode."""
+
     data_network = None
     exec_network = None
 

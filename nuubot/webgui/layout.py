@@ -77,6 +77,8 @@ th.center, td.center { text-align: center; }
 
 
 def shell(content):
+    """Wrap page content in the WebGUI shell."""
+
     return Div(
         Header(
             A("nuubot", href="/", cls="brand"),

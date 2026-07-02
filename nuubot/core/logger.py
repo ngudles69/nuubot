@@ -8,6 +8,8 @@ DEFAULT_LOG_NAME = "server.log"
 
 
 def logger(name: str = DEFAULT_LOG_NAME) -> logging.Logger:
+    """Return the configured project logger."""
+
     log_path = LOG_DIR / name
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = logging.getLogger(str(log_path.resolve()))

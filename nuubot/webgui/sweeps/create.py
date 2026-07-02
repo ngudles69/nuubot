@@ -13,6 +13,8 @@ DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "workspace" / "template
 
 
 def register(rt, server) -> None:
+    """Register sweep create and edit routes."""
+
     @rt("/sweeps/create", methods="get")
     def get(error: str = ""):
         return create_page(default_template(), error)
@@ -55,12 +57,19 @@ def register(rt, server) -> None:
 
 
 def create_page(template: str, error: str = "", *, title: str = "Create Sweep", action: str = "/sweeps/create", primary: str = "Create Sweep", rerun: bool = False):
+    """Render the sweep template editor."""
+
+    # Build message.
     message = ()
     if error:
         message = (Toast(error, cls=(ToastHT.end, ToastVT.top), alert_cls="alert-error", dur=3.0),)
+
+    # Build actions.
     buttons = [Button(primary, cls="uk-btn uk-btn-primary")]
     if rerun:
         buttons.append(Button("Save and Run", name="run", value="1", cls="uk-btn uk-btn-default"))
+
+    # Build page.
     return shell(
         Section(
             Card(

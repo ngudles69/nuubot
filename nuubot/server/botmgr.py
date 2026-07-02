@@ -31,8 +31,6 @@ class BotManager:
             raise RuntimeError(f"{place} DB expected 1 file, got {len(paths)}: {bot_id}")
         return paths[0]
 
-    # Archive and unarchive bots.
-
     def archive(self, bot_id: int) -> None:
         source = self._one_bot_path(bot_id, archived=False)
         target = self.archive_dir() / source.name

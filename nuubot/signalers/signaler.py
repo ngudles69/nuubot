@@ -20,7 +20,7 @@ class SignalerDecision:
 
 class Signaler:
     def __init__(self, config: BotrunConfig, run_log: Any) -> None:
-        self.items = [create_signaler(signaler) for signaler in config.signalers]
+        self.items = [build_signaler(signaler) for signaler in config.signalers]
         self.log = run_log
         self.last_bar_ms_by_interval: dict[str, int] = {}
         self.last_bar: Bar | None = None
@@ -55,22 +55,28 @@ class Signaler:
         return True
 
     async def loop_once(self) -> SignalerDecision:
+        """Run eligible signalers and choose the signal decision."""
+
+        # Collect signals.
         results = []
         for signaler, bar in self._eligible:
             results.append((bar, await signaler.loop_once(bar)))
 
+        # Prefer exit.
         exit_signal = next(((bar, signal) for bar, signal in results if signal.exit), None)
         if exit_signal is not None:
             bar, signal = exit_signal
             self.log.info(f"signal_exit reason={signal.reason} ts_now: {format_ms(bar.ts_ms)}")
             return SignalerDecision(bar, signal, "exit")
 
+        # Accept entry.
         entry_signal = next(((bar, signal) for bar, signal in results if signal.entry), None)
         if entry_signal is not None:
             bar, signal = entry_signal
             self.log.info(f"signal_entry reason={signal.reason} ts_now: {format_ms(bar.ts_ms)}")
             return SignalerDecision(bar, signal, "entry")
 
+        # Return hold.
         bar, signal = results[0]
         return SignalerDecision(bar, signal)
 
@@ -85,6 +91,8 @@ class Signaler:
             await signaler.stop()
 
     def _eligible_items(self, snapshot: MarketSnapshot) -> list[tuple[Any, Bar]]:
+        """Select signalers with fresh usable bars."""
+
         eligible = []
         for signaler in self.items:
             bar = snapshot.bars.get(signaler.interval)
@@ -123,7 +131,7 @@ class Signaler:
         self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
 
 
-def create_signaler(config: Any) -> Any:
+def build_signaler(config: Any) -> Any:
     if config.name == "emacross":
         return SignalerEmaCross(config)
     if config.name == "startnow":

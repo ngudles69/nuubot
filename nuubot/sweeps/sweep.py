@@ -23,35 +23,37 @@ class Sweep:
     run_lock: threading.Lock
 
     def run(self) -> dict[str, Any]:
+        """Launch generated sweepruns and return immediate sweep status."""
+
         with self.run_lock:
-            # Prevent two runs with the same sweep ID.
+            # Prevent duplicate sweep run.
             result_thread = self.result_threads.get(self.sweep_id)
             if result_thread is not None and result_thread.is_alive():
                 raise RuntimeError(f"sweep already running: {self.sweep_id}")
 
-            # Load and validate the sweep config before changing rows.
+            # Load sweep config.
             db = dbname(self.sweep_id, "sweep")
             sweep = self.datastore.get(db, SweepRow, sweep_id=self.sweep_id)
             config = GroupSweepConfig.model_validate(json.loads(sweep.config_json))
 
-            # Cap workers so one sweep cannot take over the machine.
+            # Validate worker limit.
             workers = int(config.sweep.get("workers", 4))
             if workers <= 0:
                 raise RuntimeError(f"sweep.workers must be positive: {workers}")
             if workers > MAX_SWEEP_WORKERS:
                 raise RuntimeError(f"sweep.workers must be <= {MAX_SWEEP_WORKERS}: {workers}")
 
-            # Expand the template into concrete sweeprun configs.
+            # Generate sweepruns.
             generated_configs = generate_sweepruns(config.model_dump(mode="json"))
             if not generated_configs:
                 raise RuntimeError("sweep produced no sweepruns")
 
-            # Delete old run rows and insert new ones.
+            # Reset sweeprun rows.
             sweeprun_ids = self._insert_sweepruns(generated_configs)
 
             executor = None
             try:
-                # Submit each queued sweeprun to the process pool.
+                # Submit sweepruns.
                 executor = ProcessPoolExecutor(max_workers=workers, initializer=ignore_sigint)
                 futures = []
                 for sweeprun_id in sweeprun_ids:
@@ -68,7 +70,7 @@ class Sweep:
                         )
                     )
 
-                # Finish in the background so the caller gets counts immediately.
+                # Start finisher.
                 started = time.perf_counter()
                 result_thread = threading.Thread(
                     target=finish_sweep,
@@ -78,14 +80,14 @@ class Sweep:
                 self.result_threads[self.sweep_id] = result_thread
                 result_thread.start()
             except Exception as exc:
-                # If launch fails, clean up and mark the queued run as failed.
+                # Mark launch failure.
                 if executor is not None:
                     executor.shutdown(wait=True, cancel_futures=True)
                 self.result_threads.pop(self.sweep_id, None)
                 self._mark_sweep_launch_failed(str(exc))
                 raise
 
-        # Return the immediate state; finish_sweep writes final results later.
+        # Return launch status.
         counts = {
             status: self.datastore.count(db, SweeprunRow, status=status)
             for status in ("queued", "running", "complete", "failed")
@@ -104,7 +106,9 @@ class Sweep:
         }
 
     def _insert_sweepruns(self, generated_configs: list[dict[str, Any]]) -> list[int]:
-        # Replace old child rows before workers start.
+        """Replace planned sweepruns for a sweep launch."""
+
+        # Reset child rows.
         tx = self.datastore.tx(dbname(self.sweep_id, "sweep"))
         tx.start()
         try:
@@ -118,6 +122,7 @@ class Sweep:
                 tx.insert(
                     SweeprunRow(
                         sweeprun_id=sweeprun_id,
+                        sweeprun_index=sweeprun_id,
                         sweep_id=self.sweep_id,
                         config_json=config_json,
                         results_json="{}",
@@ -139,6 +144,8 @@ class Sweep:
         return sweeprun_ids
 
     def _mark_sweep_launch_failed(self, message: str) -> None:
+        """Mark one sweep launch as failed."""
+
         tx = self.datastore.tx(dbname(self.sweep_id, "sweep"))
         tx.start()
         try:
@@ -179,12 +186,15 @@ def finish_sweep(
     workers: int,
     result_threads: dict[int, threading.Thread] | None = None,
 ) -> dict[str, Any]:
+    """Wait for launched sweepruns and save final sweep result."""
+
     try:
-        # Wait for all runs to finish and record process-level failures.
+        # Wait for sweepruns.
         for sweeprun_id, future in futures:
             try:
                 future.result()
             except Exception as exc:
+                # Save process failure.
                 tx = datastore.tx(db)
                 tx.start()
                 try:
@@ -204,7 +214,7 @@ def finish_sweep(
                 finally:
                     tx.close()
 
-        # Compute sweep status from the sweeprun rows.
+        # Calculate sweep status.
         tx = datastore.tx(db)
         tx.start()
         try:
@@ -231,7 +241,7 @@ def finish_sweep(
             }
             result = {"sweep_id": sweep_id, "status": status, "done_count": done, "total_count": total, "timing": timing, "telemetry": {"timing": timing}, **counts}
 
-            # Save the sweep result summary to the parent sweep row.
+            # Save sweep result.
             sweep = tx.get(SweepRow, sweep_id=sweep_id)
             sweep.status = status
             sweep.results_json = json.dumps(result, sort_keys=True, separators=(",", ":"))

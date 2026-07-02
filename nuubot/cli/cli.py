@@ -21,6 +21,8 @@ def run_command(store: Datastore, args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI command arguments."""
+
     parser = argparse.ArgumentParser(prog="nuubot-cli")
     sub = parser.add_subparsers(dest="command", required=True)
 

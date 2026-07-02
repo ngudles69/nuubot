@@ -81,6 +81,8 @@ class DatastoreTx:
             self.engine = None
 
     def insert(self, row: Any) -> Any:
+        """Insert one row inside the active transaction."""
+
         session = self._session()
         session.add(row)
         session.flush()
@@ -226,6 +228,9 @@ class Datastore:
             tx.close()
 
     def next_seq(self, db: Path | str, name: str) -> int:
+        """Allocate the next datastore sequence value."""
+
+        # Lock sequence row.
         path = self._require_db(db)
         engine = self._engine(path)
         try:

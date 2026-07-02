@@ -65,6 +65,8 @@ class FileDataEngine:
         yield from self.replay_batches_list
 
     async def ingest_replay_batch(self, batch: ReplayBatch) -> None:
+        """Apply replay events to the current market snapshot."""
+
         for event in sorted(batch.events):
             if event.kind == "bar":
                 interval, bar = event.payload
@@ -88,6 +90,8 @@ class FileDataEngine:
         )
 
     def _prepare_replay_events(self) -> list[ReplayEvent]:
+        """Build replay events for the configured backtest window."""
+
         events = []
         seq = 0
         for interval in sorted(self.bars_by_interval, key=interval_ms):
@@ -140,13 +144,19 @@ class WsDataEngine:
         return MarketSnapshot(bbo=bbo, bars=dict(self.bars))
 
     async def _listen(self) -> None:
+        """Stream live market data into the latest snapshot."""
+
+        # Select network.
         url = "wss://api.hyperliquid.xyz/ws"
         if self.config.runtime.mode == Mode.TESTNET:
             url = "wss://api.hyperliquid-testnet.xyz/ws"
         async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
+            # Subscribe market feeds.
             await ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "bbo", "coin": self.config.market.symbol}}))
             for interval in self.intervals:
                 await ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "candle", "coin": self.config.market.symbol, "interval": interval}}))
+
+            # Process market messages.
             async for raw in ws:
                 if self._stop.is_set():
                     return
@@ -172,15 +182,24 @@ class WsDataEngine:
                     self.log.debug(f"papertest bar_received tf={interval} ts_bar: {format_ms(bar.ts_ms)} data={format_bar(bar)} ts_now: {format_ms(now_ms)}")
 
     def _history(self, interval: str, limit: int) -> list[Bar]:
+        """Fetch recent exchange candles for signaler warmup."""
+
+        # Validate request.
         if limit <= 0:
             return []
+
+        # Select window.
         now_ms = wall_ms()
         interval_ms_value = interval_ms(interval)
         end_ms = now_ms - interval_ms_value
         start_ms = end_ms - interval_ms_value * (limit + 10)
+
+        # Select network.
         url = "https://api.hyperliquid.xyz/info"
         if self.config.runtime.mode == Mode.TESTNET:
             url = "https://api.hyperliquid-testnet.xyz/info"
+
+        # Fetch candles.
         body = json.dumps({
             "type": "candleSnapshot",
             "req": {
@@ -198,6 +217,8 @@ class WsDataEngine:
 
 
 def group_replay_events(events: list[ReplayEvent]) -> list[ReplayBatch]:
+    """Group replay events by timestamp."""
+
     batches: list[ReplayBatch] = []
     current_ts: int | None = None
     current_events: list[ReplayEvent] = []
@@ -219,6 +240,9 @@ def required_intervals(config: BotrunConfig) -> list[str]:
 
 
 def derive_bars(base_bars: list[Bar], base_interval: str, target_interval: str) -> list[Bar]:
+    """Derive larger interval bars from base bars."""
+
+    # Validate interval conversion.
     base_ms = interval_ms(base_interval)
     target_ms = interval_ms(target_interval)
     if target_ms < base_ms or target_ms % base_ms != 0:
@@ -229,6 +253,7 @@ def derive_bars(base_bars: list[Bar], base_interval: str, target_interval: str) 
     bucket: list[Bar] = []
     bucket_start: int | None = None
 
+    # Build complete buckets.
     for bar in base_bars:
         current_start = bar.ts_ms - (bar.ts_ms % target_ms)
         if bucket_start is None or current_start != bucket_start:
@@ -262,6 +287,8 @@ def required(data: dict[str, Any], key: str, section: str) -> Any:
 
 
 def load_binance_bars(config: BotrunConfig) -> list[Bar]:
+    """Load Binance bars for a backtest config."""
+
     root = Path(config.backtest.data_dir) / config.market.symbol / config.market.interval
     if not root.exists():
         raise FileNotFoundError(f"missing Binance data folder: {root}")

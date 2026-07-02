@@ -10,6 +10,8 @@ from nuubot.webgui.layout import shell
 
 
 def register(rt, server) -> None:
+    """Register sweep list, metrics, and action routes."""
+
     @rt("/sweeps", methods="get")
     def get(request):
         rows = list(reversed(server.sweepmgr.list()["sweeps"]))
@@ -134,6 +136,9 @@ def register(rt, server) -> None:
 
 
 def sweeps_table(rows: list[dict], errors: dict[int, str] | None = None, archived: bool = False):
+    """Render the sweeps table."""
+
+    # Configure table.
     errors = errors or {}
     attrs = {
         "id": "sweeps-table",
@@ -141,6 +146,8 @@ def sweeps_table(rows: list[dict], errors: dict[int, str] | None = None, archive
     }
     if any(sweep_is_active(row) for row in rows):
         attrs |= {"hx_get": "/sweeps/table", "hx_trigger": "every 2s", "hx_swap": "outerHTML"}
+
+    # Build table.
     return Table(
         Thead(
             Tr(
@@ -163,6 +170,8 @@ def sweeps_table(rows: list[dict], errors: dict[int, str] | None = None, archive
 
 
 def sweep_row(row: dict, error: str = "", archived: bool = False):
+    """Render one sweep table row."""
+
     progress = row["progress"] if row["total_count"] else ""
     status = error or row["status"]
     return Tr(
@@ -189,6 +198,8 @@ def sweep_row(row: dict, error: str = "", archived: bool = False):
 
 
 def active_actions(row: dict):
+    """Render active sweep actions."""
+
     sweep_id = row["sweep_id"]
     return Div(
         A("View", href=f"/sweeps/{sweep_id}/metrics", cls="uk-btn uk-btn-sm uk-btn-default"),

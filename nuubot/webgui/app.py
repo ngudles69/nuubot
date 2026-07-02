@@ -16,6 +16,9 @@ class WebGui:
         self.rt = None
 
     def init(self) -> "WebGui":
+        """Build the FastHTML app and register routes."""
+
+        # Create app.
         self.app, self.rt = fast_app(
             hdrs=(*HEADERS, Style(CSS)),
             title="nuubot",
@@ -23,10 +26,12 @@ class WebGui:
             pico=False,
         )
 
+        # Register shutdown.
         @self.app.on_event("shutdown")
         async def shutdown():
             self.server.stop()
 
+        # Register routes.
         self.register_pages()
         sweep_create.register(self.rt, self.server)
         sweep_list.register(self.rt, self.server)
@@ -34,6 +39,8 @@ class WebGui:
         return self
 
     def register_pages(self) -> None:
+        """Register top-level WebGUI pages."""
+
         rt = self.rt
 
         @rt("/")

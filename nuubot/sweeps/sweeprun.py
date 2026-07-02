@@ -231,6 +231,8 @@ class Sweeprun:
             self.exit_signals += 1
 
     def _setup_runtime(self) -> None:
+        """Build runtime objects for one sweeprun."""
+
         # Validate config is ready.
         if self.config is None:
             raise RuntimeError("sweeprun must be started before setup")
@@ -273,6 +275,8 @@ class Sweeprun:
         self.timing[key] = self.timing.get(key, 0) + int(seconds * 1000)
 
     def _save_result(self, result: dict[str, Any]) -> None:
+        """Persist final sweeprun result."""
+
         # Serialize result.
         result_json = json.dumps(result, sort_keys=True, separators=(",", ":"))
 
@@ -311,6 +315,8 @@ def validate_supported_sweeprun_runtime(config: SweeprunConfig) -> None:
 
 
 def load_sweeprun_bars(config: SweeprunConfig) -> list[Bar]:
+    """Load market bars for one sweeprun."""
+
     root = Path(config.sweeprun.data_dir) / config.market.symbol / config.market.interval
     if not root.exists():
         raise FileNotFoundError(f"missing Binance data folder: {root}")
@@ -325,11 +331,13 @@ def load_sweeprun_bars(config: SweeprunConfig) -> list[Bar]:
 
 
 def run_sweeprun(db_path: str, sweep_id: int, sweeprun_id: int, worker_name: str) -> dict[str, Any]:
+    """Run one sweeprun inside a process-pool worker."""
+
     try:
         # Process-pool entry point for one generated sweeprun.
         return asyncio.run(Sweeprun(db_path, sweep_id, sweeprun_id, worker_name).execute())
     except Exception as exc:
-        # Save worker failure so the sweep can count it.
+        # Save worker failure.
         datastore = Datastore()
         tx = datastore.tx(Path(db_path))
         tx.start()

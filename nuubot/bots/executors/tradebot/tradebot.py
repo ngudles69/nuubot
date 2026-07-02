@@ -40,6 +40,9 @@ class TradeLedger:
         self.next_botrun_index = 1
 
     def start(self) -> None:
+        """Start the trade ledger for the active botrun."""
+
+        # Save account state.
         tx = self.datastore.tx(self.db)
         tx.start()
         try:
@@ -63,10 +66,15 @@ class TradeLedger:
             tx.close()
 
     def open_position(self, side: str, price: float, ts_ms: int) -> int:
+        """Open a ledger position for a trade entry."""
+
+        # Allocate botrun.
         bot_id = self._bot_id()
         position_id = bot_id
         order_side = "buy" if side == "long" else "sell"
         position = Position(self.ctx, side=side, price=price, ts_ms=ts_ms)
+
+        # Save entry ledger.
         tx = self.datastore.tx(self.db)
         tx.start()
         try:
@@ -82,9 +90,14 @@ class TradeLedger:
             tx.close()
 
     def close_position(self, position_id: int, side: str, price: float, change_pct: float, reason: str, ts_ms: int) -> None:
+        """Close a ledger position for a trade exit."""
+
+        # Validate active botrun.
         bot_id = self.current_bot_id
         if bot_id is None:
             raise RuntimeError("active trade missing bot_id")
+
+        # Save exit ledger.
         order_side = "sell" if side == "long" else "buy"
         tx = self.datastore.tx(self.db)
         tx.start()
@@ -118,8 +131,12 @@ class TradeLedger:
         self.current_bot_id = None
 
     def _bot_id(self) -> int:
+        """Return the active botrun ID or create the next one."""
+
         if self.current_bot_id is not None:
             return self.current_bot_id
+
+        # Create botrun.
         tx = self.datastore.tx(self.db)
         tx.start()
         try:
@@ -200,6 +217,9 @@ class ExecutorTrade:
         self.ledger.start()
 
     async def loop_once(self, bar: Bar, signal: Signal) -> None:
+        """Process one trade event."""
+
+        # Exit active trade.
         closed = False
         if self.active:
             self._update_drawdown(bar.close)
@@ -220,6 +240,7 @@ class ExecutorTrade:
                 self._close(price, self._change_pct(price), "stop_loss", bar.ts_ms)
                 closed = True
 
+        # Enter new trade.
         if not self.active and not closed and self._can_enter():
             if signal.entry:
                 self._open(bar, "long", bar.open)
@@ -255,6 +276,8 @@ class ExecutorTrade:
         self.log.info(f"trade_open cycle={self.cycle_id} side={side} price={price} ts_now: {format_ms(bar.ts_ms)}")
 
     def _close(self, price: float, change_pct: float, reason: str, now_ms: int) -> None:
+        """Close the active in-memory trade state."""
+
         if self.position_id is None:
             raise RuntimeError("active trade missing position_id")
         self.ledger.close_position(self.position_id, self.side, price, change_pct, reason, now_ms)

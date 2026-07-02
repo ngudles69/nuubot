@@ -49,7 +49,12 @@ def exchange_meta_stale(datastore: Any, db: str) -> bool:
 
 
 def save_exchange_meta(datastore: Any, db: str, rows: list[HcMetaRow]) -> None:
+    """Replace stored exchange metadata."""
+
+    # Stamp metadata.
     fetched_at = datetime.now(UTC)
+
+    # Save metadata.
     tx = datastore.tx(db)
     tx.start()
     try:
@@ -104,9 +109,14 @@ def fetch_info(url: str, request_type: str) -> dict[str, Any]:
 
 
 def normalize_perp_meta(meta: dict[str, Any]) -> list[HcMetaRow]:
+    """Convert Hyperliquid perp metadata into datastore rows."""
+
+    # Validate payload.
     universe = meta.get("universe")
     if not isinstance(universe, list):
         raise RuntimeError("meta.universe missing")
+
+    # Build market rows.
     rows: list[HcMetaRow] = []
     for index, market in enumerate(universe):
         if not isinstance(market, dict):
@@ -131,10 +141,15 @@ def normalize_perp_meta(meta: dict[str, Any]) -> list[HcMetaRow]:
 
 
 def normalize_spot_meta(meta: dict[str, Any]) -> list[HcMetaRow]:
+    """Convert Hyperliquid spot metadata into datastore rows."""
+
+    # Validate payload.
     universe = meta.get("universe")
     tokens = meta.get("tokens")
     if not isinstance(universe, list) or not isinstance(tokens, list):
         raise RuntimeError("spotMeta.universe/tokens missing")
+
+    # Build market rows.
     rows: list[HcMetaRow] = []
     for market in universe:
         if not isinstance(market, dict):
