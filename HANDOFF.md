@@ -4,33 +4,32 @@ Last updated: 2026-07-02
 
 ## focus
 
-`nuubot/**` function-name, docstring, and intent-comment cleanup.
+Sweep signaler protocol and `SwEmacross` reference implementation.
 
 ## current status
 
-- Working tree changes are ready to commit.
-- Prior checkpoint commit: `b1a3dc8 Update sweeprun lifecycle comments`.
-- Comments/docstrings across non-trivial `nuubot/**` functions now follow the
-  `sweeprun.py` style: function docstring for purpose, short block comments for
-  intent.
-- Removed unused `Runtime.loop_once_target()` pseudocode stub.
-- Renamed local factory-style helpers:
-  `build_data_engine`, `build_clock`, `build_executor`, `build_signaler`.
-- Removed one-line `runtime_mode()` indirection.
-- Fixed existing sweep DB compatibility by keeping `SweeprunRow.sweeprun_index`
-  populated with the same `index + 1` value as `sweeprun_id`.
-- Repaired stored sweep `26` config in `workspace/db/sweep_26.db`: 2
-  `sweeprun.stop` fields changed to current `sweeprun.end`.
+- Sweep signaler design is documented in `wiki/design/sweeps.md`.
+- `SwSignal`, `SwSignaler`, `SwData`, `Timeframe`, generic `DataLoader`, and
+  `SwEmacross` are implemented.
+- `SwEmacross` lifecycle is:
+  `init`, `start`, `data_req`, `load`, `calc`, `check`, `stop`.
+- `calc()` writes calculated columns to the Polars frame and builds a small
+  close-time signal cache for fast `check()` lookup.
+- Binance monthly `.zip` is treated as canonical when both `.zip` and extracted
+  `.csv` exist for the same month.
+- `DataLoader` reuses `nuubot.core.market_data.read_binance_file()` for parsing.
+- Closeout audit passed: `audits/07-02-sweep-signaler-audit-v1.md`.
+- Closeout commit: this commit.
 
 ## active server
 
 - Server is running on `127.0.0.1:5001`.
-- Current server PID from port owner: `31508`.
-- Started via `bash ./server.sh` after stopping old PID `57060`.
+- Current server PID from port owner: `13488`.
+- Started via `bash ./server.sh` after stopping old PID `29184`.
 
 ## active agents
 
-None.
+None. Adversarial sub-agent `019f2300-acf9-7f31-ad70-9ff5895ad0e7` completed PASS.
 
 ## blockers
 
@@ -38,68 +37,75 @@ None known.
 
 ## files changed
 
-- `nuubot/bots/executors/tradebot/tradebot.py`
-- `nuubot/bots/runtime.py`
-- `nuubot/cli/cli.py`
-- `nuubot/config/config.py`
-- `nuubot/core/exchange_meta.py`
-- `nuubot/core/logger.py`
-- `nuubot/core/market_data.py`
-- `nuubot/datastore/datastore.py`
-- `nuubot/datastore/models.py`
-- `nuubot/datastore/schemas.py`
-- `nuubot/server/api.py`
-- `nuubot/server/botmgr.py`
-- `nuubot/server/server.py`
-- `nuubot/server/sweepmgr.py`
-- `nuubot/signalers/emacross/emacross.py`
-- `nuubot/signalers/signaler.py`
-- `nuubot/sweeps/sweep.py`
-- `nuubot/sweeps/sweeprun.py`
-- `nuubot/sweeps/template.py`
-- `nuubot/webgui/app.py`
-- `nuubot/webgui/layout.py`
-- `nuubot/webgui/sweeps/create.py`
-- `nuubot/webgui/sweeps/list.py`
 - `HANDOFF.md`
+- `audits/07-02-sweep-signaler-audit-v1.md`
+- `nuubot/core/data_loader.py`
+- `nuubot/core/dtypes.py`
+- `nuubot/signalers/emacross/emacross.py`
+- `nuubot/sweeps/executors/__init__.py`
+- `nuubot/sweeps/executors/executor.py`
+- `nuubot/sweeps/executors/swtradebot.py`
+- `nuubot/sweeps/signalers/__init__.py`
+- `nuubot/sweeps/signalers/signaler.py`
+- `nuubot/sweeps/signalers/swemacross.py`
+- `nuubot/sweeps/sweeprun.py`
+- `pyproject.toml`
+- `uv.lock`
+- `tests/test_data_loader.py`
+- `tests/test_emacross_params.py`
+- `tests/test_swemacross.py`
+- `wiki/design/sweeps.md`
 
 ## proof run
 
-- `python -m compileall -q nuubot`
-- `python -m compileall -q nuubot tests`
-- Direct test modules passed:
-  `test_runtime_flow`, `test_sweep_template`, `test_sweep_run_guards`,
-  `test_sweep_results_failure`, `test_sweep_metrics`,
-  `test_datastore_boundary`, `test_datastore_dbname`, `test_archive`.
-- `pytest` was not available in the venv.
+- `rtk uv run python -m compileall -q nuubot tests`
+- `PYTHONPATH=.` all `tests/test_*.py`
+- `rtk git diff --check`
+- real loader check:
+  - `4375` rows
+  - `4375` unique timestamps
+  - `4344` active BTCUSDT 1h bars
 - Server restart proof:
-  - stopped old port owner PID `57060`
+  - stopped old port owner PID `29184`
   - `bash ./server.sh`
-  - `/status` returned OK
-- Sweep `26` rerun through current server API:
-  - `POST /api/sweeps/26/run` returned `status=running`, `total_count=36`
-  - final `/api/sweeps/26/metrics` returned `status=complete`
+  - server restarted on PID `13488`
+  - `/status` returned running
+- Sweep `28` rerun through current server API:
+  - `POST /api/sweeps/28/run` returned `status=running`, `total_count=36`
+  - final `/api/sweeps/28/metrics` returned `status=complete`
   - `complete_count=36`
   - `failed_count=0`
   - `progress=36/36`
-  - `win_loss=17/36 (47.2%)`
-  - `profit_factor=0.73`
-  - `ev=-3.65%`
-  - `total_ms=4804`
-  - `worker_count=4`
+  - `total_ms=1243`
+  - `bars=157680`
+  - `bars_per_second=126854.38`
+  - `timing_signaler_check_ms` present
+- SQLite check:
+  - `complete|36`
+  - no sweeprun error text
+- Adversarial audit:
+  - first pass found stale proof, stale handoff, duplicate parser
+  - fixes applied
+  - second pass PASS
 
 ## proof not run
 
-- Playwright/WebGUI screenshot check was not run.
+- No synthetic ZIP fixture test. ZIP behavior is covered by file-selection test
+  and real sweep 28 path.
 
 ## decisions made
 
-- Comments must state block intent, not mechanics or incidental qualifiers.
-- Do not add `before`/`after` wording unless ordering is a real design point.
-- Do not add `how` comments unless they record a key decision.
-- Existing sweep DBs still need `sweeprun_index`; populate it with the same
-  current index key instead of reintroducing autoincrement behavior.
+- Use protocol shape for sweep signalers instead of inheritance.
+- Use `check()` as the signal query method.
+- Keep `SwSignal` as the standardized return:
+  `enter_long`, `enter_short`, `exit_long`, `exit_short`, `reason`.
+- Use one `SwData` object as both request and loaded-data holder.
+- Use Polars frames for loaded/calculated sweep signaler data.
+- Keep indicator column names private to each signaler.
+- Keep `calc()` and `check()` paired inside each signaler implementation.
+- Use Binance `.zip` as canonical monthly source when duplicate `.csv` exists.
+- Keep placeholder builders for sweep signalers/executors for now.
 
 ## next action
 
-Commit the ready changes, then continue review from the next requested module.
+None. Work is complete; pushed commit should be the current resume point.

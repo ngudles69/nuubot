@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+import polars as pl
+
 class Mode(StrEnum):
     MAINNET = "mainnet"
     TESTNET = "testnet"
@@ -33,6 +35,15 @@ class HyperliquidNetwork(StrEnum):
     SIMNET = "simnet"
 
 
+class Timeframe(StrEnum):
+    M1 = "1m"
+    M5 = "5m"
+    M15 = "15m"
+    H1 = "1h"
+    H4 = "4h"
+    D1 = "1d"
+
+
 @dataclass
 class Bar:
     ts_ms: int
@@ -49,6 +60,16 @@ class DataReq:
     symbol: str
     interval: str
     warmup_bars: int = 0
+
+
+@dataclass
+class SwData:
+    name: str
+    symbol: str
+    timeframe: Timeframe
+    warmup_bars: int
+    max_age_ms: int = 0
+    frame: pl.DataFrame | None = None
 
 
 @dataclass(order=True)

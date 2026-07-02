@@ -7,8 +7,10 @@ from nuubot.core.models.mconfig import SignalerConfig
 class SignalerEmaCross:
     def __init__(self, config: SignalerConfig) -> None:
         self.interval = config.interval
-        fast = int(config.params["fast"])
-        slow = int(config.params["slow"])
+        fast = config.params["fast"]
+        slow = config.params["slow"]
+        if type(fast) is not int or type(slow) is not int:
+            raise ValueError(f"EMA periods must be integers: fast={fast!r} slow={slow!r}")
         if fast <= 0 or slow <= 0:
             raise ValueError("EMA periods must be positive")
         if fast >= slow:

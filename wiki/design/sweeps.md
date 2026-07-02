@@ -244,6 +244,76 @@ Fast sweeps must not change trading logic.
 Runtime sweeps exist to validate that the same config works through the normal
 backtest loop.
 
+## signaler data contract
+
+Sweep signalers are strategy signal modules. A signaler can use any number of
+datasets: different symbols, different timeframes, and different indicator
+families. The sweep does not know why a signaler needs each dataset.
+
+The shared contract is:
+
+- `SwData`: one requested or loaded market dataset.
+- `SwSignal`: one standardized signal output.
+- `SwSignaler`: lifecycle protocol for sweep signalers.
+
+`SwData` is both the request and the loaded data container. Before load,
+`frame` is empty. The generic data loader fills `frame`. The signaler then
+uses the same object for calculation and checks.
+
+```text
+SwData
+  name
+  symbol
+  timeframe
+  warmup_bars
+  max_age_ms
+  frame
+```
+
+Flow:
+
+```text
+for item in signaler.data_req(symbol):
+  item.frame = loader.load(item, start_ms, stop_ms)
+
+signaler.load()
+signaler.calc()
+signal = signaler.check(now_ms)
+```
+
+Rules:
+
+- The loader is generic. It loads market data only.
+- The loader is not owned by a signaler, a sweep, or an executor.
+- The loader returns a Polars dataframe.
+- `SwData.frame` is the signaler's working data.
+- `calc()` adds whatever columns the signaler needs to its frames.
+- `check()` reads those custom columns and returns `SwSignal`.
+- Indicator column names are private to each signaler.
+- Voting rules are private to each signaler: any-one, two-of-three, all-of-three,
+  regime filters, or other custom logic.
+- Generic sweep code must not reference signaler calculation columns.
+
+`SwSignal` is the only standardized output:
+
+```text
+enter_long
+enter_short
+exit_long
+exit_short
+reason
+```
+
+Supported authored timeframes are:
+
+```text
+1m, 5m, 15m, 1h, 4h, 1d
+```
+
+`SwEmacross` is the first reference implementation. It should stay simple, but
+it must show the complete pattern: validate config, request data, load frames,
+calculate columns, and check the latest complete calculated bar.
+
 ## executor comparison
 
 Compare executors by running normal sweepruns.
