@@ -30,10 +30,12 @@ External commands:
 
 - `init()`
 - `close()`
+- `create_position(symbol)`
+- `position(position_id)`
 - `ingest_bbo(tick)`
 - `place_orders(orders, observed_at_ms)`
 - `cancel_orders(cancels, observed_at_ms)`
-- `close_position(tick, observed_at_ms, reason)`
+- `close_positions(positions, price, observed_at_ms, reason)`
 - `recon(observed_at_ms, reason)`
 - `set_leverage(leverage)`
 - `leverage()`
@@ -66,14 +68,16 @@ External commands:
 | --- | --- | --- | --- |
 | `init()` | Config, meta, execution network. | Initialized TradingAccount. | Builds real or simulator-backed account. Fails loud on invalid credentials/config. |
 | `close()` | Initialized TradingAccount. | Closed TradingAccount. | Closes owned exchange/simulator resources. Does not hide dirty state. |
+| `create_position(symbol)` | Symbol. | New position. | Creates position intent in the owned Ledger before submit. |
+| `position(position_id)` | Position id. | Position or error. | Reads the owned Ledger and fails loud on missing position. |
 | `ingest_bbo(tick)` | Tick/BBO event. | Account update. | Live can mark/no-op. Simulator ingests the tick, matches open orders, creates fills, and updates internal state. |
 | `place_orders(orders, observed_at_ms)` | Order intents. | Submit results. | Records intent, routes to real/sim execution, applies submit evidence, and runs `recon()` if immediately filled. |
 | `cancel_orders(cancels, observed_at_ms)` | Cancel intents. | Cancel results. | Cancels through real/sim execution and records resulting evidence. |
-| `close_position(tick, observed_at_ms, reason)` | Current tick and reason. | Submit results. | Builds reduce-only cleanup orders from current position state and submits them. |
+| `close_positions(positions, price, observed_at_ms, reason)` | Positions, price, time, reason. | Submit results. | Cancels open exit orders, builds reduce-only cleanup orders from current position state, and submits them. |
 | `recon(observed_at_ms, reason)` | Time and reason. | Recon summary. | Pulls only needed exchange/simulator evidence, normalizes it, and updates Ledger. |
 | `set_leverage(leverage)` | Target leverage. | Exchange/sim result. | Sets account leverage or fails loud when unsupported. |
 | `leverage()` | None. | Current leverage. | Reads current account leverage from exchange/simulator. |
-| `balance()` | None. | Balance object. | Reads account balance from exchange/simulator. |
+| `balance()` | None. | Balance object. | Reads account balance or fails loud when the backing exchange/simulator does not support it yet. |
 | `summary()` | None. | Account summary. | Returns account and ledger summary for telemetry/results. |
 | `audit()` | None. | Account audit. | Reports dirty open state for cleanup/stop handling. |
 

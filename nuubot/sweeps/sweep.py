@@ -22,7 +22,7 @@ class Sweep:
     sweep_id: int
     result_threads: dict[int, threading.Thread]
     run_lock: threading.Lock
-    account_names: set[str] | None = None
+    account_names: set[str]
 
     def run(self) -> dict[str, Any]:
         """Launch generated sweepruns and return immediate sweep status."""
@@ -179,11 +179,9 @@ def ignore_sigint() -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def ensure_executor_accounts_exist(generated_configs: list[dict[str, Any]], account_names: set[str] | None) -> None:
+def ensure_executor_accounts_exist(generated_configs: list[dict[str, Any]], account_names: set[str]) -> None:
     """Validate sweep executor accounts against loaded credentials."""
 
-    if account_names is None:
-        return
     for config in generated_configs:
         account = config["executor"]["account"]
         if account not in account_names:
@@ -241,16 +239,16 @@ def finish_sweep(
             status = "failed" if counts["failed"] else "complete"
             if done < total:
                 status = "running"
-            bars = 0
+            ticks = 0
             for row in tx.select(SweeprunRow):
                 row_results = json.loads(row.results_json or "{}")
-                bars += int(row_results.get("telemetry", {}).get("bars") or row_results.get("bars") or 0)
+                ticks += int(row_results.get("telemetry", {}).get("ticks") or row_results.get("ticks") or 0)
             total_ms = pt_now_ts_ms() - pt_sweep_ts_ms
             total_seconds = total_ms / 1000
             timing = {
                 "total_ms": total_ms,
-                "bars": bars,
-                "bars_per_second": round(bars / total_seconds, 2) if total_seconds else 0.0,
+                "ticks": ticks,
+                "ticks_per_second": round(ticks / total_seconds, 2) if total_seconds else 0.0,
                 "worker_count": workers,
             }
             result = {"sweep_id": sweep_id, "status": status, "done_count": done, "total_count": total, "timing": timing, "telemetry": {"timing": timing}, **counts}

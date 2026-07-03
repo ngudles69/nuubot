@@ -41,7 +41,7 @@ class Sweeprun:
     log_path: Path | None = None
     timing: dict[str, int] = field(default_factory=dict)
     pt_total_ts_ms: int = 0
-    bars_processed: int = 0
+    ticks_processed: int = 0
     warmup_bars: int = 0
     entry_signals: int = 0
     exit_signals: int = 0
@@ -51,7 +51,7 @@ class Sweeprun:
     botrun_ledgers: list[tuple[int, SwExecutor, BotRunResult]] = field(default_factory=list)
     botruns_started: int = 0
     botruns_stopped: int = 0
-    bot_bars_processed: int = 0
+    bot_ticks_processed: int = 0
     last_bar: Bar | None = None
     start_ms: int = 0
     stop_ms: int = 0
@@ -205,7 +205,8 @@ class Sweeprun:
 
         # Collect telemetry.
         telemetry = {
-            "bars": self.bars_processed,
+            "replay_bars": len(self.bars or []),
+            "ticks": self.ticks_processed,
             "warmup_bars": self.warmup_bars,
             "savedb": self.config.sweeprun.savedb,
             "entry_signals": self.entry_signals,
@@ -225,7 +226,8 @@ class Sweeprun:
             "status": "complete",
             "performance": trade_result,
             "telemetry": telemetry,
-            "bars": self.bars_processed,
+            "replay_bars": len(self.bars or []),
+            "ticks": self.ticks_processed,
             "warmup_bars": self.warmup_bars,
             "savedb": self.config.sweeprun.savedb,
             "entry_signals": self.entry_signals,
@@ -260,7 +262,7 @@ class Sweeprun:
         self.record_timing_ms("signaler_check", pt_now_ts_ms() - pt_signaler_check_ts_ms)
 
         # Update counters.
-        self.bars_processed += 1
+        self.ticks_processed += 1
         self.last_bar = event
         signal = self._dedupe_signal(signal)
         if signal.enter_long or signal.enter_short:
@@ -278,7 +280,7 @@ class Sweeprun:
         if self.executor is not None:
             pt_executor_next_ts_ms = pt_now_ts_ms()
             await self.executor.next(event, signal, self.config.risk.score)
-            self.bot_bars_processed += 1
+            self.bot_ticks_processed += 1
             self.record_timing_ms("executor_next", pt_now_ts_ms() - pt_executor_next_ts_ms)
 
         # Clear stopped bot.
@@ -313,19 +315,19 @@ class Sweeprun:
         pt_executor_start_ts_ms = pt_now_ts_ms()
         await self.executor.start()
         self.botruns_started += 1
-        self.bot_bars_processed = 0
+        self.bot_ticks_processed = 0
         self.record_timing_ms("executor_start", pt_now_ts_ms() - pt_executor_start_ts_ms)
 
     async def _stop_active_bot(self, event: Bar | None) -> None:
         # Stop active bot.
         pt_executor_stop_ts_ms = pt_now_ts_ms()
-        result = await self.executor.stop(event, self.bot_bars_processed)
+        result = await self.executor.stop(event, self.bot_ticks_processed)
         self.bot_results.append(result)
         if self.config.sweeprun.savedb:
             self.botrun_ledgers.append((self.botruns_stopped + 1, self.executor, result))
         self.executor = None
         self.botruns_stopped += 1
-        self.bot_bars_processed = 0
+        self.bot_ticks_processed = 0
         self.record_timing_ms("executor_stop", pt_now_ts_ms() - pt_executor_stop_ts_ms)
 
     def _result(self) -> BotRunResult:
@@ -337,7 +339,7 @@ class Sweeprun:
             losses=sum(result.losses for result in self.bot_results),
             trades=sum(result.trades for result in self.bot_results),
             max_drawdown_pct=max((result.max_drawdown_pct for result in self.bot_results), default=0.0),
-            bars=self.bars_processed,
+            ticks=self.ticks_processed,
             cycles=sum(result.cycles for result in self.bot_results),
         )
 

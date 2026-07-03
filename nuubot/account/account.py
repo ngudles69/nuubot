@@ -33,6 +33,12 @@ class TradingAccount:
     def ingest_bbo(self, tick: object) -> None:
         self.simulator.ingest_bbo(tick)
 
+    def create_position(self, symbol: str) -> TradePosition:
+        return self.ledger.create_position(symbol)
+
+    def position(self, position_id: int) -> TradePosition:
+        return self.ledger.position(position_id)
+
     def place_position(self, position: TradePosition, ts_ms: int) -> list[OrderResult]:
         return self.place_orders(position.orders, ts_ms)
 
@@ -40,7 +46,8 @@ class TradingAccount:
         results = self.simulator.place_orders(orders, ts_ms)
         changed: set[int] = set()
         for result in results:
-            changed |= self.ledger.record_fills(result.fills)
+            fill_changed, _ = self.ledger.record_fills(result.fills)
+            changed |= fill_changed
         changed |= self.ledger.update_orders([result.update() for result in results])
         self.ledger.recalc(changed)
         self.ledger.save_changed()
@@ -86,7 +93,7 @@ class TradingAccount:
         open_orders = self.simulator.get_open_orders()
         fills = [fill_from_row(row) for row in raw_fills]
         updates = recon_order_updates(self.ledger, open_orders, fills)
-        changed, fills_recorded = self.ledger.record_fills_count(fills)
+        changed, fills_recorded = self.ledger.record_fills(fills)
         changed |= self.ledger.update_orders(updates)
         self.ledger.recalc(changed)
         self.ledger.save_changed()

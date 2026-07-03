@@ -248,8 +248,8 @@ Minimum result:
 Speed timing:
 
 - total ms.
-- bars processed.
-- bars per second.
+- ticks processed.
+- ticks per second.
 - worker count.
 
 Speed timing is mandatory for every sweep proof. It measures total sweep wall
@@ -401,7 +401,7 @@ Sweep executors use the sweep-local `SwExecutor` protocol:
 init()
 start()
 next(bar, signal, risk_score)
-stop(last_bar, bars_processed) -> result
+stop(last_event, ticks_processed) -> result
 status
 telemetry()
 ```
@@ -432,13 +432,13 @@ saving the final sweeprun result.
 
 Account detail now follows the `TradingAccount` boundary: one Hyperliquid
 account owns exchange/simulator access plus one ledger. Sweeprun feeds replay
-ticks to active bot accounts through `ingest_bbo()`, then calls account
-`recon()`. The active executor still owns strategy decisions and sends order
-intents through `place_orders()` / `cancel_orders()` / `close_position()`.
-The executor definition owns the selected account name, and sweep create/run
-validates that name against loaded Hyperliquid credentials. Ledger, position,
-order, fill, simulator, and recon details remain under the active bot/executor
-side of the boundary, not in Sweeprun.
+ticks to the active executor through `next()`. The active executor/bot owns
+account `ingest_bbo()`, throttled `recon()`, strategy decisions, and order
+intent submission through `place_orders()` / `cancel_orders()` /
+`close_positions()`. The executor definition owns the selected account name,
+and sweep create/run validates that name against loaded Hyperliquid
+credentials. Ledger, position, order, fill, simulator, and recon details remain
+under the active bot/executor side of the boundary, not in Sweeprun.
 
 Example:
 

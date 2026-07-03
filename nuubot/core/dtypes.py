@@ -112,5 +112,5 @@ class BotRunResult:
     losses: int
     trades: int
     max_drawdown_pct: float
-    bars: int
+    ticks: int
     cycles: int

@@ -14,7 +14,9 @@ def main() -> None:
     test_position_pnl_uses_entry_and_exit_fills()
     test_simulator_trigger_order_reconciles_from_fills()
     test_simulator_trigger_fills_at_submitted_price_with_slippage()
+    test_simulator_balance_fails_loud()
     test_recon_keeps_partial_missing_order_partial()
+    test_recon_does_not_double_count_cumulative_partial_fills()
 
 
 def test_fill_requires_positive_size() -> None:
@@ -152,6 +154,18 @@ def test_simulator_trigger_fills_at_submitted_price_with_slippage() -> None:
     assert tp.avg_fill_price == Decimal("102.9485")
 
 
+def test_simulator_balance_fails_loud() -> None:
+    account = TradingAccount(simulator=Simulator(0, 0))
+    account.init()
+
+    try:
+        account.balance()
+    except NotImplementedError as exc:
+        assert "simulator balance" in str(exc)
+    else:
+        raise AssertionError("simulator returned fake balance")
+
+
 def test_recon_keeps_partial_missing_order_partial() -> None:
     ledger = TradeLedger()
     account = TradingAccount(ledger=ledger)
@@ -167,6 +181,30 @@ def test_recon_keeps_partial_missing_order_partial() -> None:
     result = account.recon(2, "partial")
 
     assert result.fills_recorded == 1
+    assert order.status == "partial"
+    assert order.terminal_reason == "canceled"
+    assert order.filled_size == Decimal("0.7")
+    assert order.remaining_size == Decimal("0.3")
+    assert position.status == "open"
+
+
+def test_recon_does_not_double_count_cumulative_partial_fills() -> None:
+    ledger = TradeLedger()
+    account = TradingAccount(ledger=ledger)
+    account.init()
+
+    position = ledger.create_position("BTC")
+    order = Order("BTC", "buy", Decimal("1"), Decimal("100"), "entry-1", kind="limit")
+    position.add_order(order)
+    account.place_position(position, 1)
+    account.simulator.seen_fills.append(Fill("entry-1", order.oid, "buy", Decimal("100"), Decimal("0.7"), Decimal("0"), 2))
+
+    first = account.recon(2, "partial_open")
+    account.simulator.open = []
+    second = account.recon(3, "partial_gone")
+
+    assert first.fills_recorded == 1
+    assert second.fills_recorded == 0
     assert order.status == "partial"
     assert order.terminal_reason == "canceled"
     assert order.filled_size == Decimal("0.7")

@@ -47,11 +47,11 @@ class TradeLedger:
     def open_positions(self) -> list[TradePosition]:
         return [position for position in self.positions if position.is_open()]
 
-    def position(self, position_id: int) -> TradePosition | None:
+    def position(self, position_id: int) -> TradePosition:
         for position in self.positions:
             if position.position_id == position_id:
                 return position
-        return None
+        raise RuntimeError(f"position missing from ledger: {position_id}")
 
     def open_orders(self) -> list[tuple[TradePosition, Order]]:
         out: list[tuple[TradePosition, Order]] = []
@@ -80,11 +80,7 @@ class TradeLedger:
                 changed.add(position.position_id)
         return changed
 
-    def record_fills(self, fills: list[Fill]) -> set[int]:
-        changed, _ = self.record_fills_count(fills)
-        return changed
-
-    def record_fills_count(self, fills: list[Fill]) -> tuple[set[int], int]:
+    def record_fills(self, fills: list[Fill]) -> tuple[set[int], int]:
         changed: set[int] = set()
         recorded = 0
         for fill in fills:

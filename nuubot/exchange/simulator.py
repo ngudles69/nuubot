@@ -131,7 +131,7 @@ class Simulator:
         return self.current_leverage
 
     def balance(self) -> dict[str, Decimal]:
-        return {"equity": Decimal("0"), "available": Decimal("0")}
+        raise NotImplementedError("simulator balance is not implemented")
 
     def _fill_price(self, order: Order) -> Decimal:
         if order.kind == "trigger" and order.trigger_price is not None:
@@ -198,7 +198,7 @@ def recon_order_updates(ledger: TradeLedger, open_orders: list[dict[str, Any]], 
 def _filled_from_evidence(order: Order, fills: list[Fill], fills_by_cloid: set[str], fills_by_oid: set[int]) -> bool:
     if order.cloid not in fills_by_cloid and (order.oid is None or order.oid not in fills_by_oid):
         return False
-    size = order.filled_size
+    size = Decimal("0")
     for fill in fills:
         if (order.cloid and fill.cloid == order.cloid) or (order.oid is not None and fill.oid == order.oid):
             size += fill.size

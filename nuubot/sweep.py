@@ -37,9 +37,9 @@ def main() -> None:
         ("cycles", sum_int(row.get("cycles") for row in performance)),
         ("wins", sum_int(row.get("wins") for row in performance)),
         ("losses", sum_int(row.get("losses") for row in performance)),
-        ("bars", sum_int(row.get("bars") for row in performance)),
+        ("ticks", sum_int(row.get("ticks") for row in performance)),
     ])
-    print_table("timing", [(key, timing.get(key, "-")) for key in ("total_ms", "bars", "bars_per_second", "worker_count")])
+    print_table("timing", [(key, timing.get(key, "-")) for key in ("total_ms", "ticks", "ticks_per_second", "worker_count")])
     print_timing_stats(metrics["telemetry"].get("sweepruns", {}))
 
 

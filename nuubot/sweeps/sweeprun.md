@@ -55,21 +55,17 @@ for event in replay:
   executor.next(event, signal, config.risk.score)
 ```
 
-Target account-aware loop:
+Current account-aware loop:
 
 ```text
 for tick in replay:
-  for account in executor.accounts:
-    await account.ingest_bbo(tick)
-
-  for account in executor.accounts:
-    await account.recon(tick.ts_ms, reason="sweeprun_loop")
-
-  await executor.recon(executor.accounts)
-
   signal = signaler.check(tick.ts_ms)
   await executor.next(tick, signal, config.risk.score)
 ```
+
+`SwTradeBot.next()` owns account `ingest_bbo()` and throttled `recon()` for its
+single configured account. Do not add a multi-account protocol until a real
+executor needs it.
 
 Signal timing is fixed. A signal is stored on the OHLCV row whose close
 created it. `signaler.check(current_ts_ms)` receives the current decision
@@ -84,9 +80,8 @@ or ledger mutation rules.
 
 ## 1. `sweeprun.py`
 
-Matches current code except the account loop is future design. Assume replay
-will feed tick/BBO events; do not add a bar compatibility layer unless code
-still needs it during implementation.
+Matches current code. Assume replay feeds tick/BBO events; do not add a bar
+compatibility layer unless code still needs it during implementation.
 
 ```python
 class Sweeprun:
@@ -149,19 +144,9 @@ class Sweeprun:
 
     async def next(self, tick: object) -> None:
         # Require runtime values.
-        # Update accounts with market data.
-        for account in self.executor.accounts:
-            await account.ingest_bbo(tick)
-
-        # Recon account ledgers.
-        for account in self.executor.accounts:
-            await account.recon(tick.ts_ms, reason="sweeprun_loop")
 
         # Check signal.
         signal = self.signaler.check(tick.ts_ms)
-
-        # Recon executor state.
-        await self.executor.recon(self.executor.accounts)
 
         # Run executor.
         await self.executor.next(tick, signal, self.config.risk.score)
@@ -275,35 +260,25 @@ generic signaler framework.
 
 ## 4. `executors/executor.py`
 
-Future shape.
+Current shape.
 
 ```python
 class SwExecutor:
-    accounts: list[TradingAccount]
+    status: str
 
     async def init(self) -> None:
         # Validate config.
-        # Declare accounts.
         # Set values.
 
     async def start(self) -> None:
         # Start executor.
 
-    async def recon(self, accounts: list[TradingAccount]) -> None:
-        # Recon executor state.
-
     async def next(self, event: object, signal: SwSignal, risk_score: int) -> None:
-        # Run exit check.
-        await self.exit_check()
-
         # Run executor step.
 
-    async def stop(self, event: object | None, bars: int) -> BotRunResult:
+    async def stop(self, event: object | None, ticks: int) -> BotRunResult:
         # Stop executor.
         # Return result.
-
-    async def exit_check(self) -> bool:
-        # Check bot exit conditions.
 
     def telemetry(self) -> dict:
         # Report telemetry.
@@ -325,32 +300,32 @@ def create_executor(config_id: int, config: Any, run_log: Any) -> SwExecutor:
 
 ## 5. `executors/swtradebot.py`
 
-Current code uses `MemoryTradeLedger` directly. Once `TradingAccount` exists,
-`SwTradeBot` should stop writing ledger rows directly and use account methods.
-Current mutation paths are `_open()` -> `ledger.open_position()` and
-`_close()` -> `ledger.close_position()`.
+Current code uses `TradingAccount` as the execution/account boundary.
+`SwTradeBot` creates position/order intent, submits through account methods,
+and relies on `account.recon()` to apply exchange or simulator evidence.
 
 ```python
 class SwTradeBot:
-    def __init__(self, config: TradeConfig, run_log: Any, ledger: Any | None = None) -> None:
+    def __init__(self, config: TradeConfig, run_log: Any, account: TradingAccount | None = None) -> None:
         # Set config.
-        # Set ledger.
+        # Set account.
         # Set trade state.
         # Set counters.
         # Set risk state.
 
     async def init(self) -> None:
         # Validate config.
+        # Init account.
 
     async def start(self) -> None:
-        # Start ledger.
+        # Mark started.
 
     async def next(self, event: object, signal: SwSignal, risk_score: int) -> None:
         # Validate risk.
         # Exit active trade.
         # Enter new trade.
 
-    async def stop(self, event: object | None, bars: int) -> BotRunResult:
+    async def stop(self, event: object | None, ticks: int) -> BotRunResult:
         # Close active trade.
         # Build result.
 
@@ -361,41 +336,37 @@ class SwTradeBot:
         # Report telemetry.
 ```
 
-Target account-aware shape:
+Current account-aware shape:
 
 ```python
 class SwTradeBot:
-    def __init__(self, config: TradeConfig, run_log: Any) -> None:
+    def __init__(self, config: TradeConfig, run_log: Any, account: TradingAccount | None = None) -> None:
         # Set config.
         # Set log.
-        # Set accounts.
+        # Set account.
         # Set trade state.
         # Set counters.
 
     async def init(self) -> None:
         # Validate config.
-        # Declare accounts.
-        # Set values.
+        # Init account.
 
     async def start(self) -> None:
         # Mark started.
 
-    async def recon(self, accounts: list[TradingAccount]) -> None:
-        # Require account.
-        # Read account ledger.
-        # Find active position.
-        # Find open orders.
-        # Set executor state.
-
     async def next(self, event: object, signal: SwSignal, risk_score: int) -> None:
         # Validate risk.
+        # Ingest BBO into account.
+        # Run throttled account recon.
+        # Sync position state.
         # Check exits.
         # Check entries.
-        # Send order intents.
+        # Send order intent through account.
         # Update telemetry.
 
-    async def stop(self, event: object | None, bars: int) -> BotRunResult:
-        # Audit open state.
+    async def stop(self, event: object | None, ticks: int) -> BotRunResult:
+        # Run pre-close recon.
+        # Submit market close if still open.
         # Close result.
 ```
 
@@ -406,7 +377,7 @@ entry signal -> account.place_orders(entry intent)
 exit signal -> account.place_orders(reduce-only exit intent)
 take profit -> account.place_orders(reduce-only exit intent)
 stop loss -> account.place_orders(reduce-only exit intent)
-account.recon() -> Ledger applies fills -> executor.recon() sees active state
+account.recon() -> Ledger applies fills -> SwTradeBot syncs active state
 ```
 
 TradeBot creates position and order intent, then submits it through
@@ -511,8 +482,8 @@ class TradeLedger:
     def create_position(self, symbol: str) -> TradePosition:
         # Create position.
 
-    def position(self, position_id: int) -> TradePosition | None:
-        # Find position.
+    def position(self, position_id: int) -> TradePosition:
+        # Find position or fail.
 
     def open_positions(self) -> list[TradePosition]:
         # Return non-terminal positions.
@@ -527,9 +498,9 @@ class TradeLedger:
         # Update open orders.
         # Return changed position ids.
 
-    def record_fills(self, fills: list[Fill]) -> set[int]:
+    def record_fills(self, fills: list[Fill]) -> tuple[set[int], int]:
         # Record fills on open orders.
-        # Return changed position ids.
+        # Return changed position ids and recorded fill count.
 
     def recalc(self, position_ids: set[int]) -> None:
         # Recalculate changed positions.

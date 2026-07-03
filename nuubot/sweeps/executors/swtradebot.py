@@ -81,11 +81,10 @@ class SwTradeBot:
             self._update_drawdown(bar.close)
             if not self._uses_trigger_exits():
                 signal_price = bar.open
-                signal_change_pct = self._change_pct(signal_price)
                 if self.side == "long" and signal.exit_long:
-                    await self._close(signal_price, signal_change_pct, signal.reason, bar.ts_ms)
+                    await self._close(signal_price, signal.reason, bar.ts_ms)
                 elif self.side == "short" and signal.exit_short:
-                    await self._close(signal_price, signal_change_pct, signal.reason, bar.ts_ms)
+                    await self._close(signal_price, signal.reason, bar.ts_ms)
 
         # Enter new trade.
         if not self.active and self.status == "running" and self._can_enter():
@@ -94,12 +93,12 @@ class SwTradeBot:
             elif signal.enter_short:
                 await self._open(bar, "short", bar.open, signal.reason)
 
-    async def stop(self, bar: Bar | None, bars: int) -> BotRunResult:
+    async def stop(self, bar: Bar | None, ticks: int) -> BotRunResult:
         if self.active and bar is not None:
-            await self._close(bar.close, self._change_pct(bar.close), "stop", bar.ts_ms)
+            await self._close(bar.close, "stop", bar.ts_ms)
         self.account.close()
         self.status = "stopped"
-        return self._result(bars)
+        return self._result(ticks)
 
     def telemetry(self) -> dict[str, Any]:
         return {
@@ -119,7 +118,7 @@ class SwTradeBot:
             "last_risk_score": self.last_risk_score,
         }
 
-    def _result(self, bars: int) -> BotRunResult:
+    def _result(self, ticks: int) -> BotRunResult:
         return BotRunResult(
             config_id=self.config.config_id,
             pnl_pct=self.pnl_pct,
@@ -127,7 +126,7 @@ class SwTradeBot:
             losses=self.losses,
             trades=self.trades,
             max_drawdown_pct=self.max_drawdown_pct,
-            bars=bars,
+            ticks=ticks,
             cycles=self.cycle_count,
         )
 
@@ -137,7 +136,7 @@ class SwTradeBot:
         self.side = side
         self.entry_price = price
         self.active = True
-        position = self.account.ledger.create_position(self.config.symbol or "UNKNOWN")
+        position = self.account.create_position(self.config.symbol or "UNKNOWN")
         entry_cloid = f"tradebot-{self.config.config_id}-{self.cycle_id}-entry-{bar.ts_ms}"
         order = Order(
             symbol=self.config.symbol or "UNKNOWN",
@@ -155,19 +154,32 @@ class SwTradeBot:
         self.account.recon(bar.ts_ms, "post_submit")
         self.last_recon_ts_ms = bar.ts_ms
         self.position_id = position.position_id
+        self.entry_price = self._entry_fill_price(position)
         self.log.info(f"trade_open cycle={self.cycle_id} side={side} reason={reason} price={price} ts_now: {format_ms(bar.ts_ms)}")
 
-    async def _close(self, price: float, change_pct: float, reason: str, now_ms: int) -> None:
+    async def _close(self, price: float, reason: str, now_ms: int) -> None:
         """Close the active in-memory trade state."""
 
         if self.position_id is None:
             raise RuntimeError("active trade missing position_id")
-        position = self.account.ledger.position(self.position_id)
-        if position is None:
-            raise RuntimeError(f"active trade position missing from ledger: {self.position_id}")
+
+        # Pull exchange truth before submitting a manual close.
+        self.account.recon(now_ms, "pre_close")
+        self.last_recon_ts_ms = now_ms
+        self._sync_position()
+        if not self.active or self.position_id is None:
+            return
+
+        position = self.account.position(self.position_id)
         self.account.close_positions([position], Decimal(str(price)), now_ms, reason)
         self.account.recon(now_ms, reason)
         self.last_recon_ts_ms = now_ms
+        position.recalc()
+        exit_orders = [order for order in position.orders if order.reduce_only and order.filled_size > 0]
+        exit_order = exit_orders[-1] if exit_orders else None
+        if exit_order is None:
+            raise RuntimeError(f"manual close did not produce an exit fill: position_id={position.position_id}")
+        change_pct = self._position_change_pct(position)
         self.pnl_pct += change_pct
         self.wins += int(change_pct >= 0)
         self.losses += int(change_pct < 0)
@@ -244,9 +256,7 @@ class SwTradeBot:
     def _sync_position(self) -> None:
         if not self.active or self.position_id is None:
             return
-        position = self.account.ledger.position(self.position_id)
-        if position is None:
-            raise RuntimeError(f"active trade position missing from ledger: {self.position_id}")
+        position = self.account.position(self.position_id)
         position.recalc()
         if position.status != "closed":
             return
@@ -254,7 +264,7 @@ class SwTradeBot:
         exit_order = exit_orders[-1] if exit_orders else None
         if exit_order is None:
             return
-        change_pct = self._change_pct(float(exit_order.avg_fill_price))
+        change_pct = self._position_change_pct(position)
         self.pnl_pct += change_pct
         self.wins += int(change_pct >= 0)
         self.losses += int(change_pct < 0)
@@ -266,3 +276,17 @@ class SwTradeBot:
         self.entry_order_cloid = ""
         self.status = "stopped"
         self.log.info(f"trade_close cycle={self.cycle_id} reason={exit_order.role} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f} ts_now: {format_ms(exit_order.fills[-1].ts_ms)}")
+
+    def _entry_fill_price(self, position: Any) -> float:
+        entries = [order for order in position.orders if not order.reduce_only and order.filled_size > 0]
+        entry = entries[0] if entries else None
+        if entry is None:
+            raise RuntimeError(f"position missing entry fill: position_id={position.position_id}")
+        return float(entry.avg_fill_price)
+
+    def _position_change_pct(self, position: Any) -> float:
+        position.recalc()
+        entry_cash = sum((abs(order.signed_cash()) for order in position.orders if not order.reduce_only), Decimal("0"))
+        if entry_cash == 0:
+            raise RuntimeError(f"position missing entry notional: position_id={position.position_id}")
+        return float(position.pnl() / entry_cash * Decimal("100"))

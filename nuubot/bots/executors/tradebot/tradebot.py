@@ -260,7 +260,7 @@ class ExecutorTrade:
     async def exit(self) -> bool:
         return self.config.max_cycles > 0 and self.cycle_count >= self.config.max_cycles and not self.active
 
-    def result(self, bars: int) -> BotRunResult:
+    def result(self, ticks: int) -> BotRunResult:
         return BotRunResult(
             config_id=self.config.config_id,
             pnl_pct=self.pnl_pct,
@@ -268,7 +268,7 @@ class ExecutorTrade:
             losses=self.losses,
             trades=self.trades,
             max_drawdown_pct=self.max_drawdown_pct,
-            bars=bars,
+            ticks=ticks,
             cycles=self.cycle_count,
         )
 

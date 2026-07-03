@@ -40,7 +40,7 @@ def invalid_workers_do_not_reset_sweep() -> None:
         datastore.insert(db, SweeprunRow(sweeprun_id=1, sweep_id=1, config_json="{}", results_json="{}", status="complete"))
 
         try:
-            Sweep(datastore, 1, {}, threading.Lock()).run()
+            Sweep(datastore, 1, {}, threading.Lock(), {"sgrid"}).run()
         except RuntimeError as exc:
             assert "sweep.workers must be positive" in str(exc)
         else:
@@ -138,7 +138,7 @@ def launch_failure_marks_rows_failed() -> None:
         sweep_module.ProcessPoolExecutor = FailingExecutor
         try:
             try:
-                Sweep(datastore, 1, {}, threading.Lock()).run()
+                Sweep(datastore, 1, {}, threading.Lock(), {"sgrid"}).run()
             except RuntimeError as exc:
                 assert str(exc) == "submit boom"
             else:
@@ -176,7 +176,7 @@ def partial_launch_failure_drains_started_futures() -> None:
         sweep_module.ProcessPoolExecutor = PartialFailingExecutor
         try:
             try:
-                Sweep(datastore, 1, {}, threading.Lock()).run()
+                Sweep(datastore, 1, {}, threading.Lock(), {"sgrid"}).run()
             except RuntimeError as exc:
                 assert str(exc) == "submit boom"
             else:
