@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
 import json
+import os
 import signal
 import threading
 from typing import Any
@@ -12,7 +13,7 @@ from nuubot.datastore import AccountRow, BotrunRow, Datastore, EventRow, FillRow
 from nuubot.sweeps.template import GroupSweepConfig, generate_sweepruns
 from nuubot.sweeps.sweeprun import run_sweeprun
 
-MAX_SWEEP_WORKERS = 8
+MAX_SWEEP_WORKERS = os.cpu_count() or 1
 
 
 @dataclass
@@ -21,6 +22,7 @@ class Sweep:
     sweep_id: int
     result_threads: dict[int, threading.Thread]
     run_lock: threading.Lock
+    account_names: set[str] | None = None
 
     def run(self) -> dict[str, Any]:
         """Launch generated sweepruns and return immediate sweep status."""
@@ -47,6 +49,7 @@ class Sweep:
             generated_configs = generate_sweepruns(config.model_dump(mode="json"))
             if not generated_configs:
                 raise RuntimeError("sweep produced no sweepruns")
+            ensure_executor_accounts_exist(generated_configs, self.account_names)
 
             # Reset sweeprun rows.
             sweeprun_ids = self._insert_sweepruns(generated_configs)
@@ -174,6 +177,17 @@ class Sweep:
 def ignore_sigint() -> None:
     """Ignore Ctrl+C in process-pool workers so the parent handles shutdown."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def ensure_executor_accounts_exist(generated_configs: list[dict[str, Any]], account_names: set[str] | None) -> None:
+    """Validate sweep executor accounts against loaded credentials."""
+
+    if account_names is None:
+        return
+    for config in generated_configs:
+        account = config["executor"]["account"]
+        if account not in account_names:
+            raise RuntimeError(f"sweep executor account not found in config.credentials.hyperliquid.accounts: {account}")
 
 
 def finish_sweep(

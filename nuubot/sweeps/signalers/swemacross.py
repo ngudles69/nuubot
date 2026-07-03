@@ -5,7 +5,7 @@ from bisect import bisect_right
 import polars as pl
 
 from nuubot.core.data_loader import DataLoader
-from nuubot.core.dtypes import Bar, SwData, Timeframe
+from nuubot.core.dtypes import SwData, Timeframe
 from nuubot.core.market_data import interval_ms
 from nuubot.core.models.mconfig import SignalerConfig
 from nuubot.sweeps.signalers.signaler import SwSignal
@@ -137,29 +137,29 @@ class SwEmacross:
                 exit_long=bool(row["sw_exit_long"]),
                 exit_short=bool(row["sw_exit_short"]),
                 reason=str(row["sw_reason"]),
+                signal_ts_ms=int(row["close_ms"]),
             )
             for row in signals.iter_rows(named=True)
         ]
 
-    def check(self, now: int | Bar) -> SwSignal:
+    def check(self, current_ts_ms: int) -> SwSignal:
         """Check the latest complete calculated bar for a signal."""
 
         # Normalize check time.
-        now_ms = now.ts_ms + interval_ms(self.timeframe) if isinstance(now, Bar) else now
-        if not isinstance(now_ms, int):
-            raise TypeError(f"bad signal check time: {now!r}")
+        if not isinstance(current_ts_ms, int):
+            raise TypeError(f"bad signal check time: {current_ts_ms!r}")
 
         # Validate calculated frame.
         if self.crossover.frame.is_empty():
             raise RuntimeError("SwEmacross must calculate data before check")
 
         # Select latest calculated signal.
-        index = bisect_right(self._close_ms, now_ms) - 1
+        index = bisect_right(self._close_ms, current_ts_ms) - 1
         if index < 0:
             return SwSignal()
         close_ms = self._close_ms[index]
-        if now_ms - close_ms > self.crossover.max_age_ms:
-            raise RuntimeError(f"stale SwEmacross signal: now_ms={now_ms} close_ms={close_ms}")
+        if current_ts_ms - close_ms > self.crossover.max_age_ms:
+            raise RuntimeError(f"stale SwEmacross signal: now_ms={current_ts_ms} close_ms={close_ms}")
 
         # Return signal.
         signal = self._signals[index]
@@ -169,6 +169,7 @@ class SwEmacross:
             exit_long=signal.exit_long,
             exit_short=signal.exit_short,
             reason=signal.reason,
+            signal_ts_ms=signal.signal_ts_ms,
         )
 
     def stop(self) -> None:

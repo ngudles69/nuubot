@@ -55,6 +55,9 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
     data_dir = str(config.sweep.get("data_dir", ""))
     if not data_dir:
         raise RuntimeError("sweep.data_dir is required")
+    savedb = config.sweep.get("savedb", True)
+    if type(savedb) is not bool:
+        raise RuntimeError("sweep.savedb must be true or false")
 
     # Expand groups.
     data_sets = _family_variants("data", config.data)
@@ -84,7 +87,16 @@ def generate_sweepruns(data: dict[str, Any]) -> list[dict[str, Any]]:
             raise RuntimeError(f"signalers.{meta['signaler']}.items must contain exactly one signaler")
 
         config_row = {
-            "sweeprun": {"start": sweeprun["start"], "end": sweeprun["end"], "data_dir": data_dir, "meta": meta},
+            "sweeprun": {
+                "start": sweeprun["start"],
+                "end": sweeprun["end"],
+                "data_dir": data_dir,
+                "savedb": savedb,
+                "simulator_slippage_pct": config.sweep.get("simulator_slippage_pct", 0.05),
+                "simulator_commission_pct": config.sweep.get("simulator_commission_pct", 0.05),
+                "simulator_recon_interval_ms": config.sweep.get("simulator_recon_interval_ms", 60_000),
+                "meta": meta,
+            },
             "signaler": signalers[0],
             "executor": executor,
             "risk": risk,

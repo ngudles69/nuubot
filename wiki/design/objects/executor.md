@@ -1,7 +1,7 @@
 ---
 title: executor object
 created: 2026-06-23
-updated: 2026-06-23
+updated: 2026-07-03
 type: wiki
 status: active
 tags: [design, objects, executor, strategy]
@@ -14,7 +14,7 @@ tags: [design, objects, executor, strategy]
 Executor is the strategy execution logic.
 
 It receives runtime triggers such as BBO/candle bars and signal results. It
-places outgoing orders through Account.
+places outgoing orders through `TradingAccount`.
 
 Code layout target:
 
@@ -36,7 +36,7 @@ Do not add deeper folders until a real executor needs them.
 
 Allowed connections:
 
-- `Account` for order/account actions.
+- `TradingAccount` for order/account actions.
 - `Datastore` for strategy result/state writes only.
 - `Signaler` output through Runtime.
 
@@ -46,10 +46,9 @@ External commands:
 
 - `init()`
 - `start()`
+- `next(event, signal, risk_score)`
 - `stop()`
-- `loop_once(market, signal)`
-- `exit()`
-- `result()`
+- `status`
 - `telemetry()`
 
 Executor receives:
@@ -62,22 +61,21 @@ Executor receives:
 
 Executor outputs:
 
-- order intent to Account.
+- order intent to `TradingAccount`.
 - strategy telemetry.
 - strategy result.
 - optional strategy state/result writes.
-- exit request.
+- stopped status.
 
 ## contracts
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Config, Account, optional Datastore. | Initialized Executor. | Validates strategy config and required object connections. Does not submit orders. |
+| `init()` | Config, TradingAccount, optional Datastore. | Initialized Executor. | Validates strategy config and required object connections. Does not submit orders. |
 | `start()` | Initialized Executor. | Running Executor. | Prepares strategy-local state. Does not change runtime flow. |
-| `stop()` | Running Executor. | Stopped Executor. | Finalizes open strategy state according to executor rules. |
-| `loop_once(market, signal)` | Market trigger and standardized Signal. | Strategy action. | Decides hold/entry/exit, builds order intent, and calls Account. Does not inspect indicators. |
-| `exit()` | Strategy state. | Boolean. | Returns whether Executor requests runtime stop. |
-| `result()` | Strategy state. | Strategy result. | Returns final PnL/trade/diagnostic summary. |
+| `next(event, signal, risk_score)` | Event object, standardized Signal, risk score. | Strategy action. | Decides hold/entry/exit, builds order intent, and calls `TradingAccount` when account support exists. Does not inspect indicators. |
+| `stop()` | Running Executor. | Strategy result. | Finalizes open strategy state according to executor rules and marks status stopped. |
+| `status` | Strategy state. | Status string. | Reports configured/running/stopped so the owner can clear an inactive bot. |
 | `telemetry()` | Strategy state. | JSON-safe telemetry. | Returns current strategy telemetry without side effects. |
 
 ## processing
@@ -86,11 +84,12 @@ Internal functions:
 
 - validate executor params.
 - decide entry/exit/hold.
+- reconcile executor-local state from account ledgers.
 - size orders.
 - build order intent.
-- call Account submit/cancel/reconcile.
+- call `TradingAccount.place_orders()`, `cancel_orders()`, `close_position()`, or `recon()`.
 - record strategy result/state when allowed.
-- process Account submit/cancel results.
+- process `TradingAccount` submit/cancel results.
 - update strategy-local state.
 - build final result summary.
 

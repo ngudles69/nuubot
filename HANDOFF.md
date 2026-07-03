@@ -1,101 +1,124 @@
 # handoff
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 
 ## focus
 
-Sweep signaler data ownership and `SwEmacross` reference shape.
+Sweep-local account, ledger, position, order, fill, simulator, and recon path.
 
 ## current status
 
-- Latest implementation commit: `41364e4 Clarify sweep signaler data ownership`.
-- Sweep signaler design is documented in `wiki/design/sweeps.md`.
-- `SwData` declares all fields up front:
-  `name`, `symbol`, `timeframe`, `warmup_bars`, `max_age_ms`, `start_ms`,
-  `stop_ms`, `frame`.
-- `SwEmacross` owns its signal data internally as `self.crossover`.
-- `SwEmacross` lifecycle is:
-  `init`, `start`, `load`, `calc`, `check`, `stop`.
-- Signalers do not expose `data_req()` or `signaler.data`.
-- `load()` determines warmup bars and the dataset load window, then loads data.
-- `calc()` calculates the full loaded dataset.
-- `check()` picks the latest closed calculated row as of the requested time and
-  returns `SwSignal`.
-- Sweeprun owns replay `SwData`; executor consumes bars and signals.
-- Binance monthly `.zip` is canonical when both `.zip` and extracted `.csv`
-  exist for the same month.
-- `DataLoader` reuses `nuubot.core.market_data.read_binance_file()` for parsing.
+- Current work is uncommitted.
+- `nuubot/sweeps/trading.py` was hardcut and removed.
+- Account/execution pieces now live in:
+  - `nuubot/account/account.py`
+  - `nuubot/account/ledger.py`
+  - `nuubot/account/position.py`
+  - `nuubot/account/order.py`
+  - `nuubot/account/fill.py`
+  - `nuubot/exchange/simulator.py`
+- `SwTradeBot` imports `Order` and `TradingAccount` from `nuubot.account`.
+- Active sweep template:
+  `workspace/templates/sweeps/emacross-tradebot-2025-halves.toml`
+  - executor account: `sgrid`
+  - `take_profit_pct = 3.0`
+  - `stop_loss_pct = 1.0`
+  - `savedb = true`
+- `Sweeprun` replays 1m execution bars as three synthetic ticks:
+  - up bar: `open -> high -> low -> close`
+  - down bar: `open -> low -> high -> close`
+- The simulator supports market entries plus trigger TP/SL exits.
+- `TradingAccount.recon()` pulls simulator evidence through
+  `get_user_fills()` and `get_open_orders()`, matching the intended
+  live/sim command shape.
+- Audit fixes already applied:
+  - partial fills no longer infer `filled` unless cumulative fills cover the
+    order size.
+  - `ReconResult.fills_recorded` now reports actual newly recorded fills.
 
 ## active server
 
-- Server is running on `127.0.0.1:5001`.
-- Current server PID from port owner: `54608`.
-- Started via `bash ./server.sh` after stopping old PID `13488`.
+- Server was restarted after the latest code changes.
+- `http://127.0.0.1:5001/status` returned `running`.
+- Latest real sweep proof is sweep `38`.
 
 ## active agents
 
-None.
+None. The read-only adversarial audit agent completed and was closed.
 
 ## blockers
 
-None known.
+- No correctness blocker known for the current sweep path.
+- Known performance issue: recon currently pulls all fills on every synthetic
+  tick. Sweep 38 processed `37,843,200` tick events and spent most time in
+  `timing_executor_next_ms`.
 
-## files changed in latest implementation
+## files changed
 
-- `nuubot/core/data_loader.py`
-- `nuubot/core/dtypes.py`
-- `nuubot/sweeps/executors/swtradebot.py`
-- `nuubot/sweeps/signalers/signaler.py`
-- `nuubot/sweeps/signalers/swemacross.py`
-- `nuubot/sweeps/sweeprun.py`
-- `tests/test_emacross_params.py`
-- `tests/test_swemacross.py`
-- `wiki/design/sweeps.md`
+- Added `nuubot/account/`
+- Added `nuubot/exchange/`
+- Deleted `nuubot/sweeps/trading.py`
+- Updated sweep executor, sweep persistence/reporting, sweep template, tests,
+  scratchpad, and durable wiki design pages around account/recon/sweep state.
+
+Run `git status --short` for the exact uncommitted set.
 
 ## proof run
 
-- `rtk uv run python -m compileall -q nuubot tests`
-- `PYTHONPATH=.` all `tests/test_*.py`
-- `rtk git diff --check`
-- Server restart proof:
-  - stopped old port owner PID `13488`
-  - `bash ./server.sh`
-  - server restarted on PID `54608`
-  - `/status` returned running
-- Sweep `28` rerun through current server API:
-  - `POST /api/sweeps/28/run` returned `status=running`, `total_count=36`
-  - final `/api/sweeps/28/metrics` returned `status=complete`
-  - `complete_count=36`
-  - `failed_count=0`
-  - `progress=36/36`
-  - `total_ms=1202`
-  - `bars=157680`
-  - `bars_per_second=131181.36`
-  - `timing_signaler_check_ms` present
-- SQLite check:
-  - no sweeprun error text
-  - `complete|36`
+- `$env:PYTHONPATH='.'; rtk uv run python tests/test_sweep_trading.py`
+- `$env:PYTHONPATH='.'; rtk uv run python tests/test_swtradebot.py`
+- `$env:PYTHONPATH='.'; rtk uv run python -m compileall -q nuubot tests`
+- `$env:PYTHONPATH='.';` all `tests\test_*.py`
+- `git diff --check`
+  - clean except existing LF/CRLF warnings.
+- Real server proof:
+  - restarted `./server.sh`
+  - created sweep `38` from the real template
+  - ran `POST /api/sweeps/38/run`
+  - metrics endpoint reported `complete_count=36`, `failed_count=0`,
+    `progress=36/36`
+- Sweep 38 report:
+  - `rtk uv run python -m nuubot.sweep 38`
+  - `account_count=1`
+  - `botrun_count=4789`
+  - `signal_count=6544`
+  - `position_count=4789`
+  - `order_count=14388`
+  - `fill_count=9578`
+  - `win_loss=24/36 (66.7%)`
+  - `profit_factor=4.54`
+  - `ev=+10.62%`
+  - `total_ms=117215`
+- Sweep 38 DB sanity:
+  - `zero_avg_exit_px=0`
+  - `open_positions=0`
+  - `open_orders=0`
+  - `wrong_tp_reason=0`
+  - `wrong_sl_reason=0`
+  - `uncanceled_sibling=0`
 
 ## proof not run
 
-- No new adversarial audit after commit `41364e4`.
-- No synthetic ZIP fixture test. ZIP behavior is covered by file-selection test
-  and real sweep 28 path.
+- No live Hyperliquid proof.
+- No rejected-order or insufficient-balance proof.
+- No `savedb=false` speed comparison after the account split.
 
 ## decisions made
 
-- Use protocol shape for sweep signalers instead of inheritance.
-- Keep signaler datasets owned by the signaler implementation.
-- Keep replay data owned by `Sweeprun`.
-- Use `check()` as the signal query method.
-- Keep `SwSignal` as the standardized return:
-  `enter_long`, `enter_short`, `exit_long`, `exit_short`, `reason`.
-- Use Polars frames for loaded/calculated sweep signaler data.
-- Keep indicator column names private to each signaler.
-- Keep `calc()` and `check()` paired inside each signaler implementation.
-- Use Binance `.zip` as canonical monthly source when duplicate `.csv` exists.
-- Keep placeholder builders for sweep signalers/executors for now.
+- Use `create_position`, not `add_position`, for ledger-owned position
+  creation.
+- Use `open`, not `working`, for recon-eligible orders/positions.
+- `TradingAccount` is the account boundary; it owns one ledger and one
+  exchange/simulator connection.
+- Ledger only owns positions and position accounting.
+- Position owns order collection and position accounting.
+- Order owns submitted intent plus exchange state and fills.
+- Fill is immutable execution evidence.
+- Recon applies the minimum needed exchange truth: open positions, open orders,
+  and fills.
 
 ## next action
 
-None. Push current commits; resume from latest `main`.
+Optimize recon scope before more strategy tuning:
+track a fill checkpoint or query only open-order `cloid`/`oid` evidence so the
+tick path does not rescan all fills on every synthetic tick.

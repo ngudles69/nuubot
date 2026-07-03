@@ -1,7 +1,7 @@
 ---
 title: abbreviations
 created: 2026-06-29
-updated: 2026-07-02
+updated: 2026-07-03
 type: wiki
 status: active
 tags: [glossary, naming]
@@ -45,6 +45,7 @@ when a short name is clearer than the full word.
 | `etime` | end time | local timing variable |
 | `ctx` / `Ctx` | context | local variable / class suffix |
 | `IdCtx` | id context | small dataclass carrying IDs/config |
+| `recon` | reconcile | general short name |
 
 ## id naming
 

@@ -79,6 +79,7 @@ Rules:
 [sweep]
 mode = "fast"
 workers = 8
+savedb = true
 
 [[data.01]]
 [data.01.sweeprun]
@@ -101,8 +102,8 @@ params = { fast = { start = 5, stop = 11, step = 3 }, slow = [20, 30, 50] }
 symbol = ["BTCUSDT", "SOLUSDT"]
 interval = "1h"
 name = "tradebot"
-take_profit_pct = 0.0
-stop_loss_pct = 0.0
+take_profit_pct = 3.0
+stop_loss_pct = 1.0
 max_cycles = 0
 
 [risk]
@@ -131,6 +132,9 @@ it from the same metadata.
 - Keep values explicit; do not hide defaults in comments.
 - `[sweep].mode` is the execution shell: currently `fast` or `standard`.
 - `[sweep].mode` must not silently change `[executor].name`.
+- `[sweep].savedb` controls signal/account/ledger detail rows. Sweep and
+  sweeprun status/result rows are always stored. Detail rows are buffered and
+  saved once per sweeprun.
 - Data sets must generate `sweeprun` with `start` and `end`.
 - Executor sets must include `symbol`, `interval`, and executor parameters.
 - Signaler sets generate final `[signaler]`.

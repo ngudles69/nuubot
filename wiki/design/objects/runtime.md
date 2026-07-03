@@ -155,11 +155,11 @@ next(event optional)
     return
 
   market = Data.snapshot(now)
-  executor_state = Executor.reconcile(market)
+  executor_state = Executor.recon(market)
 
-  Reconcile is a must-do step before any non-kill operation. Nothing trades,
-  closes, stops, checks terminal state, or submits orders before reconcile.
-  Fresh start should reconcile to flat/no-op state. Restart should reconcile
+  Recon is a must-do step before any non-kill operation. Nothing trades,
+  closes, stops, checks terminal state, or submits orders before recon.
+  Fresh start should recon to flat/no-op state. Restart should recon
   to the current exchange/account/ledger state.
 
   if max_loop reached:
@@ -311,7 +311,7 @@ Hidden in ExchangeMeta: freshness check, fetch-all, upsert, symbol lookup.
 Bot intent: initialize account because the bot must know the account exists and
 the exchange accepts it.
 Visible in Bot: account is initialized.
-Hidden in ExchangeAccount: exchange calls, validation details, credential checks.
+Hidden in TradingAccount: exchange calls, validation details, credential checks.
 ```
 
 ```text
@@ -322,7 +322,7 @@ Bot
   Clock
   ExchangeMeta
   ExchangeData / ExchangeWsData
-  ExchangeAccount
+  TradingAccount
   Risk
   Signaler
   Executor
@@ -334,7 +334,7 @@ Interaction rule:
 ```text
 Bot coordinates.
 Executor decides.
-ExchangeAccount executes.
+TradingAccount executes.
 Position, Order, and Fill record.
 Risk scores.
 Signaler signals.
@@ -461,7 +461,7 @@ Useful hooks:
 
 Bot rule:
 
-- Mainnet/testnet bot uses real `ExchangeData` and real `ExchangeAccount`.
+- Mainnet/testnet bot uses real `ExchangeData` and real `TradingAccount`.
 - Simnet/backtest bot can use simulator-backed account/execution objects.
 - Simulator internals stay inside the simulator module.
 

@@ -242,7 +242,7 @@ Rules:
 - If server DB setup fails, startup fails loud.
 - Precision and minimum-order checks use exchange meta.
 - If refresh is required and exchange fetch fails, fail startup.
-- `ExchangeAccount` and executors use the stored meta row loaded after the
+- `TradingAccount` and executors use the stored meta row loaded after the
   freshness check.
 
 Suggested table:

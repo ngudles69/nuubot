@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from nuubot.core.data_loader import DataLoader
-from nuubot.core.dtypes import Bar
 from nuubot.core.models.mconfig import SignalerConfig
 
 
@@ -15,6 +14,7 @@ class SwSignal:
     exit_long: bool = False
     exit_short: bool = False
     reason: str = ""
+    signal_ts_ms: int = 0
 
 
 class SwSignaler(Protocol):
@@ -24,11 +24,11 @@ class SwSignaler(Protocol):
     def start(self) -> None: ...
     def load(self, loader: DataLoader, start_ms: int, stop_ms: int) -> None: ...
     def calc(self) -> None: ...
-    def check(self, now: int | Bar) -> SwSignal: ...
+    def check(self, current_ts_ms: int) -> SwSignal: ...
     def stop(self) -> None: ...
 
 
-def build_signaler(config: SignalerConfig, symbol: str) -> SwSignaler:
+def create_signaler(config: SignalerConfig, symbol: str) -> SwSignaler:
     if config.name == "emacross":
         from nuubot.sweeps.signalers.swemacross import SwEmacross
 

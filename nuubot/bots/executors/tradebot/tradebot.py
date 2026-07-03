@@ -23,6 +23,9 @@ class TradeConfig:
     max_cycles: int
     symbol: str = ""
     acct_id: str = "default"
+    simulator_slippage_pct: float = 0.05
+    simulator_commission_pct: float = 0.05
+    simulator_recon_interval_ms: int = 60_000
 
 
 class TradeLedger:

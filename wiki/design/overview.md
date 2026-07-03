@@ -155,7 +155,7 @@ without recreating the over-built shape of `nuutrader6`.
 ## component map
 
 ```text
-Sweep -> Sweeprun -> Bot config -> Runtime/Bot
+Sweep -> Sweeprun runner -> sweep Signaler -> active sweep Executor
 Program entrypoint -> Nuubot -> Config + Server DB
 Server/WebGUI entrypoint -> nuubot_setup -> BotManager
 Server -> SweepManager -> Sweep -> ProcessPoolExecutor sweeprun task
@@ -163,7 +163,7 @@ API route -> Manager/helper function -> result
 Cli -> Manager/helper function -> result
 Bot runtime -> bot SQLite DB
 Sweep -> sweep SQLite DB
-Sweeprun task -> sweep SQLite DB row
+Sweeprun task -> sweep SQLite DB row + optional botrun rows
 Notebook -> BotRuntime -> bot SQLite DB
 Runtime/Bot -> short server DB check/meta read
 Runtime/Bot -> bot_setup -> Bot row + Accounts + Positions + Orders + Fills + State

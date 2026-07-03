@@ -53,6 +53,8 @@ class Bar:
     close: float
     volume: float
     closed: bool = True
+    bid: float | None = None
+    ask: float | None = None
 
 
 @dataclass(frozen=True)

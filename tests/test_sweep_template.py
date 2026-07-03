@@ -18,14 +18,22 @@ def expands_2025_halves_template_to_36_sweepruns() -> None:
     assert len(rows) == 36
     assert rows[0]["sweeprun"]["meta"] == {"data": "01", "signaler": "01", "executor": "01", "risk": "default", "run": "001"}
     assert rows[0]["executor"]["symbol"] == "BTCUSDT"
+    assert rows[0]["executor"]["account"] == "sgrid"
     assert rows[0]["executor"]["interval"] == "1h"
+    assert rows[0]["sweeprun"]["savedb"] is True
     assert rows[0]["sweeprun"]["end"] == "2025-06-30T23:59:59"
     assert rows[0]["signaler"]["params"] == {"fast": 5, "slow": 20}
     assert rows[-1]["sweeprun"]["meta"] == {"data": "02", "signaler": "01", "executor": "01", "risk": "default", "run": "036"}
     assert rows[-1]["executor"]["symbol"] == "SOLUSDT"
+    assert rows[-1]["executor"]["account"] == "sgrid"
     assert rows[-1]["executor"]["interval"] == "1h"
+    assert rows[-1]["sweeprun"]["savedb"] is True
     assert rows[-1]["sweeprun"]["end"] == "2025-12-31T23:59:59"
     assert rows[-1]["signaler"]["params"] == {"fast": 11, "slow": 50}
+
+    data["sweep"]["savedb"] = False
+    rows = generate_sweepruns(expand_sweep_template(data, "workspace/data/binance/raw/spot/monthly/klines"))
+    assert rows[0]["sweeprun"]["savedb"] is False
 
 
 def rejects_bad_labels_after_toml_parse() -> None:

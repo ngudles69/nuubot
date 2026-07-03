@@ -1,7 +1,7 @@
 ---
 title: account object
 created: 2026-06-23
-updated: 2026-06-23
+updated: 2026-07-03
 type: wiki
 status: active
 tags: [design, objects, account, simulator, exchange]
@@ -11,11 +11,11 @@ tags: [design, objects, account, simulator, exchange]
 
 ## purpose
 
-Account represents one connection to an exchange through one account.
+`TradingAccount` represents one Hyperliquid account.
 
-Account owns exchange account behavior and composes simulator behavior for
-simnet/backtest. Ledger may be composed by Account if that keeps exchange
-evidence and accounting together.
+`TradingAccount` owns exchange account behavior and one `Ledger`. During
+`init()`, it either connects to mainnet/testnet with config credentials or
+creates a simulator for simnet/backtest/sweep.
 
 Allowed composed objects:
 
@@ -29,29 +29,31 @@ Allowed composed objects:
 External commands:
 
 - `init()`
-- `start()`
-- `stop()`
-- `balances()`
-- `open_orders()`
-- `positions()`
-- `submit(order_intent)`
-- `submit_batch(order_intents)`
-- `cancel(order_id)`
-- `cancel_batch(order_ids)`
-- `reconcile()`
-- `ledger()`
+- `close()`
+- `ingest_bbo(tick)`
+- `place_orders(orders, observed_at_ms)`
+- `cancel_orders(cancels, observed_at_ms)`
+- `close_position(tick, observed_at_ms, reason)`
+- `recon(observed_at_ms, reason)`
+- `set_leverage(leverage)`
+- `leverage()`
+- `balance()`
+- `summary()`
+- `audit()`
 
-Account receives:
+`TradingAccount` receives:
 
 - config.
 - exchange meta.
+- account name selected by the executor definition.
 - order intent from `Executor`.
 - mode-derived execution network.
 - `acct_id` from the bot DB `account` row.
 
-Account outputs:
+`TradingAccount` outputs:
 
-- balances.
+- balance.
+- leverage.
 - order submit/cancel results.
 - exchange order/fill/position evidence.
 - ledger updates.
@@ -62,18 +64,18 @@ Account outputs:
 
 | Interface | Input | Output | Contract |
 | --- | --- | --- | --- |
-| `init()` | Config, meta, execution network. | Initialized Account. | Builds real or simulator-backed account path. Fails loud on invalid credentials/config. |
-| `start()` | Initialized Account. | Running Account. | Opens required live/sim resources. Does not submit orders. |
-| `stop()` | Running Account. | Stopped Account. | Closes owned resources. Does not hide dirty state. |
-| `balances()` | None. | Account balances. | Reads from real exchange or simulator. Fails loud if account path is unavailable. |
-| `open_orders()` | None. | Open order evidence. | Returns account-owned open orders in normalized shape. |
-| `positions()` | None. | Position evidence. | Returns account position evidence in normalized shape. |
-| `submit(order_intent)` | One validated order intent. | Submit result. | Applies precision/min checks, routes to real/sim execution, and feeds accepted evidence to Ledger. |
-| `submit_batch(order_intents)` | List of order intents. | Submit results. | Preserves result order and fails loud on invalid batch shape. |
-| `cancel(order_id)` | Account/order id. | Cancel result. | Cancels through real/sim execution and records resulting evidence. |
-| `cancel_batch(order_ids)` | List of ids. | Cancel results. | Preserves result order and fails loud on invalid batch shape. |
-| `reconcile()` | None. | Reconciliation summary. | Pulls only needed account evidence, normalizes it, and updates Ledger. |
-| `ledger()` | None. | Ledger object/state. | Exposes Account-owned accounting state without exposing simulator internals. |
+| `init()` | Config, meta, execution network. | Initialized TradingAccount. | Builds real or simulator-backed account. Fails loud on invalid credentials/config. |
+| `close()` | Initialized TradingAccount. | Closed TradingAccount. | Closes owned exchange/simulator resources. Does not hide dirty state. |
+| `ingest_bbo(tick)` | Tick/BBO event. | Account update. | Live can mark/no-op. Simulator ingests the tick, matches open orders, creates fills, and updates internal state. |
+| `place_orders(orders, observed_at_ms)` | Order intents. | Submit results. | Records intent, routes to real/sim execution, applies submit evidence, and runs `recon()` if immediately filled. |
+| `cancel_orders(cancels, observed_at_ms)` | Cancel intents. | Cancel results. | Cancels through real/sim execution and records resulting evidence. |
+| `close_position(tick, observed_at_ms, reason)` | Current tick and reason. | Submit results. | Builds reduce-only cleanup orders from current position state and submits them. |
+| `recon(observed_at_ms, reason)` | Time and reason. | Recon summary. | Pulls only needed exchange/simulator evidence, normalizes it, and updates Ledger. |
+| `set_leverage(leverage)` | Target leverage. | Exchange/sim result. | Sets account leverage or fails loud when unsupported. |
+| `leverage()` | None. | Current leverage. | Reads current account leverage from exchange/simulator. |
+| `balance()` | None. | Balance object. | Reads account balance from exchange/simulator. |
+| `summary()` | None. | Account summary. | Returns account and ledger summary for telemetry/results. |
+| `audit()` | None. | Account audit. | Reports dirty open state for cleanup/stop handling. |
 
 ## processing
 
@@ -81,6 +83,7 @@ Internal functions:
 
 - initialize real or simulator-backed account client.
 - validate credentials for live/test execution.
+- ingest tick/BBO events for simulator/sweep matching.
 - route submit/cancel/read calls to real exchange or simulator.
 - normalize exchange rows into local order/fill/position evidence.
 - reconcile account evidence into `Ledger`.
@@ -90,22 +93,19 @@ Internal functions:
 
 ## key helpers
 
-- submit shape builder.
-- batch submit grouper.
-- exchange row normalizer.
-- simulator adapter.
-- exchange precision/minimum checks.
-- credential validator.
-- account evidence mapper.
+Keep helper functions private and local until reused by real code. Do not add
+separate account-name, credential, or simulator-state helpers for one call
+site.
 
 ## notes
 
-- Simnet/backtest must use simulator through Account, not through Runtime.
+- Simnet/backtest/sweep must use simulator through `TradingAccount`, not
+  through Runtime or Sweeprun.
 - Runtime should not know simulator internals.
-- Ledger is allowed as Account child if we keep accounting coupled to account
-  evidence.
-- Executor sends order intent to Account. Executor does not write orders/fills
-  directly into Ledger.
+- Ledger is a `TradingAccount` child.
+- Sweep executor account names must exist in loaded Hyperliquid credentials.
+- Executor sends order intent to `TradingAccount`. Executor does not write
+  orders/fills directly into Ledger.
 - A bot using two exchange accounts has two `account` rows in the bot DB.
 - Positions belong to an `acct_id`; orders belong to a `position_id`; fills
   belong to an `order_id`.

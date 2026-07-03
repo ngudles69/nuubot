@@ -77,6 +77,7 @@ Rules for agents in `D:\rust\nuubot`.
 - Fail fast. Fail loud.
 - Validate at boundaries: file parse, DB load, generated config, and component
   init. After init succeeds, trust initialized runtime objects.
+- Defensive code only at boundaries.
 - Do not hide bad input, bad output, or source errors.
 - Keep one owner for each job.
 - No future helpers. No future wrappers. No dead stubs.

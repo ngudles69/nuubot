@@ -1,6 +1,10 @@
 [sweep]
 mode = "fast"
 workers = 8
+savedb = true
+simulator_slippage_pct = 0.05
+simulator_commission_pct = 0.05
+simulator_recon_interval_ms = 60000
 
 [[data.01]]
 [data.01.sweeprun]
@@ -21,10 +25,11 @@ params = { fast = { start = 5, stop = 11, step = 3 }, slow = [20, 30, 50] }
 [[executors.01]]
 [executors.01.executor]
 symbol = ["BTCUSDT", "SOLUSDT"]
+account = "sgrid"
 interval = "1h"
 name = "tradebot"
-take_profit_pct = 0.0
-stop_loss_pct = 0.0
+take_profit_pct = 3.0
+stop_loss_pct = 1.0
 max_cycles = 0
 
 [risk]

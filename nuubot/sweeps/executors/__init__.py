@@ -1,3 +1,3 @@
-from nuubot.sweeps.executors.executor import SwTradeBot, build_executor
+from nuubot.sweeps.executors.executor import SwExecutor, SwTradeBot, create_executor
 
-__all__ = ["SwTradeBot", "build_executor"]
+__all__ = ["SwExecutor", "SwTradeBot", "create_executor"]

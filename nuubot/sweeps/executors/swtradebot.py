@@ -1,22 +1,27 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
-from nuubot.bots.executors.tradebot.tradebot import MemoryTradeLedger, TradeConfig
+from nuubot.account import Order, TradingAccount
+from nuubot.bots.executors.tradebot.tradebot import TradeConfig
 from nuubot.core.dtypes import Bar, BotRunResult
 from nuubot.core.format import format_ms
+from nuubot.exchange import Simulator
 from nuubot.sweeps.signalers import SwSignal
 
 
 class SwTradeBot:
-    def __init__(self, config: TradeConfig, run_log: Any, ledger: Any | None = None) -> None:
+    def __init__(self, config: TradeConfig, run_log: Any, account: TradingAccount | None = None) -> None:
         self.config = config
         self.log = run_log
-        self.ledger = ledger or MemoryTradeLedger()
+        self.account = account
+        self.status = "configured"
         self.active = False
         self.side = ""
         self.entry_price = 0.0
         self.position_id: int | None = None
+        self.entry_order_cloid = ""
         self.pnl_pct = 0.0
         self.peak_pct = 0.0
         self.max_drawdown_pct = 0.0
@@ -25,52 +30,96 @@ class SwTradeBot:
         self.trades = 0
         self.cycle_id = 0
         self.cycle_count = 0
+        self.last_risk_score = 1
+        self.last_recon_ts_ms: int | None = None
 
     async def init(self) -> None:
-        pass
+        # Validate config.
+        if self.config.config_id <= 0:
+            raise ValueError(f"config_id must be positive: {self.config.config_id}")
+        if self.config.take_profit_pct < 0:
+            raise ValueError(f"take_profit_pct must be >= 0: {self.config.take_profit_pct}")
+        if self.config.stop_loss_pct < 0:
+            raise ValueError(f"stop_loss_pct must be >= 0: {self.config.stop_loss_pct}")
+        if self.config.max_cycles < 0:
+            raise ValueError(f"max_cycles must be >= 0: {self.config.max_cycles}")
+        if self.config.simulator_recon_interval_ms < 0:
+            raise ValueError(f"simulator_recon_interval_ms must be >= 0: {self.config.simulator_recon_interval_ms}")
+
+        # Init account.
+        if self.account is None:
+            self.account = TradingAccount(
+                simulator=Simulator(
+                    self.config.simulator_slippage_pct,
+                    self.config.simulator_commission_pct,
+                )
+            )
+        self.account.init()
 
     async def start(self) -> None:
-        self.ledger.start()
+        # Start bot.
+        self.status = "running"
 
-    async def loop_once(self, bar: Bar, signal: SwSignal) -> None:
+    async def next(self, bar: Bar, signal: SwSignal, risk_score: int) -> None:
         """Process one trade event."""
 
-        # Exit active trade.
-        closed = False
+        if risk_score < 1 or risk_score > 100:
+            raise ValueError(f"risk_score must be 1..100: {risk_score}")
+        self.last_risk_score = risk_score
+
+        # Reconcile account.
+        self.account.ingest_bbo(bar)
+        if self.last_recon_ts_ms is None:
+            self.last_recon_ts_ms = bar.ts_ms
+        elif self.config.simulator_recon_interval_ms == 0 or bar.ts_ms - self.last_recon_ts_ms >= self.config.simulator_recon_interval_ms:
+            self.account.recon(bar.ts_ms, "sweeprun_tick")
+            self.last_recon_ts_ms = bar.ts_ms
+            self._sync_position()
+
+        # Exit active trade without trigger orders.
         if self.active:
             self._update_drawdown(bar.close)
-            signal_price = bar.open
-            signal_change_pct = self._change_pct(signal_price)
-            if self.side == "long" and signal.exit_long:
-                self._close(signal_price, signal_change_pct, signal.reason, bar.ts_ms)
-                closed = True
-            elif self.side == "short" and signal.exit_short:
-                self._close(signal_price, signal_change_pct, signal.reason, bar.ts_ms)
-                closed = True
-            elif self._take_profit_hit(bar):
-                price = self._take_profit_price()
-                self._close(price, self._change_pct(price), "take_profit", bar.ts_ms)
-                closed = True
-            elif self._stop_loss_hit(bar):
-                price = self._stop_loss_price()
-                self._close(price, self._change_pct(price), "stop_loss", bar.ts_ms)
-                closed = True
+            if not self._uses_trigger_exits():
+                signal_price = bar.open
+                signal_change_pct = self._change_pct(signal_price)
+                if self.side == "long" and signal.exit_long:
+                    await self._close(signal_price, signal_change_pct, signal.reason, bar.ts_ms)
+                elif self.side == "short" and signal.exit_short:
+                    await self._close(signal_price, signal_change_pct, signal.reason, bar.ts_ms)
 
         # Enter new trade.
-        if not self.active and not closed and self._can_enter():
+        if not self.active and self.status == "running" and self._can_enter():
             if signal.enter_long:
-                self._open(bar, "long", bar.open)
+                await self._open(bar, "long", bar.open, signal.reason)
             elif signal.enter_short:
-                self._open(bar, "short", bar.open)
+                await self._open(bar, "short", bar.open, signal.reason)
 
-    async def stop(self, bar: Bar | None = None) -> None:
+    async def stop(self, bar: Bar | None, bars: int) -> BotRunResult:
         if self.active and bar is not None:
-            self._close(bar.close, self._change_pct(bar.close), "stop", bar.ts_ms)
+            await self._close(bar.close, self._change_pct(bar.close), "stop", bar.ts_ms)
+        self.account.close()
+        self.status = "stopped"
+        return self._result(bars)
 
-    async def exit(self) -> bool:
-        return self.config.max_cycles > 0 and self.cycle_count >= self.config.max_cycles and not self.active
+    def telemetry(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "active": self.active,
+            "side": self.side,
+            "entry_price": self.entry_price,
+            "position_id": self.position_id,
+            "pnl_pct": self.pnl_pct,
+            "peak_pct": self.peak_pct,
+            "max_drawdown_pct": self.max_drawdown_pct,
+            "wins": self.wins,
+            "losses": self.losses,
+            "trades": self.trades,
+            "cycle_id": self.cycle_id,
+            "cycle_count": self.cycle_count,
+            "last_risk_score": self.last_risk_score,
+        }
 
-    def result(self, bars: int) -> BotRunResult:
+    def _result(self, bars: int) -> BotRunResult:
         return BotRunResult(
             config_id=self.config.config_id,
             pnl_pct=self.pnl_pct,
@@ -82,21 +131,43 @@ class SwTradeBot:
             cycles=self.cycle_count,
         )
 
-    def _open(self, bar: Bar, side: str, price: float) -> None:
+    async def _open(self, bar: Bar, side: str, price: float, reason: str) -> None:
         self.cycle_id += 1
         self.trades += 1
         self.side = side
         self.entry_price = price
         self.active = True
-        self.position_id = self.ledger.open_position(side, price, bar.ts_ms)
-        self.log.info(f"trade_open cycle={self.cycle_id} side={side} price={price} ts_now: {format_ms(bar.ts_ms)}")
+        position = self.account.ledger.create_position(self.config.symbol or "UNKNOWN")
+        entry_cloid = f"tradebot-{self.config.config_id}-{self.cycle_id}-entry-{bar.ts_ms}"
+        order = Order(
+            symbol=self.config.symbol or "UNKNOWN",
+            side="buy" if side == "long" else "sell",
+            size=Decimal("1"),
+            price=Decimal(str(price)),
+            cloid=entry_cloid,
+            role="entry",
+        )
+        position.add_order(order)
+        self.entry_order_cloid = entry_cloid
+        for exit_order in self._trigger_exit_orders(side, Decimal(str(price)), entry_cloid, bar.ts_ms):
+            position.add_order(exit_order)
+        self.account.place_position(position, bar.ts_ms)
+        self.account.recon(bar.ts_ms, "post_submit")
+        self.last_recon_ts_ms = bar.ts_ms
+        self.position_id = position.position_id
+        self.log.info(f"trade_open cycle={self.cycle_id} side={side} reason={reason} price={price} ts_now: {format_ms(bar.ts_ms)}")
 
-    def _close(self, price: float, change_pct: float, reason: str, now_ms: int) -> None:
+    async def _close(self, price: float, change_pct: float, reason: str, now_ms: int) -> None:
         """Close the active in-memory trade state."""
 
         if self.position_id is None:
             raise RuntimeError("active trade missing position_id")
-        self.ledger.close_position(self.position_id, self.side, price, change_pct, reason, now_ms)
+        position = self.account.ledger.position(self.position_id)
+        if position is None:
+            raise RuntimeError(f"active trade position missing from ledger: {self.position_id}")
+        self.account.close_positions([position], Decimal(str(price)), now_ms, reason)
+        self.account.recon(now_ms, reason)
+        self.last_recon_ts_ms = now_ms
         self.pnl_pct += change_pct
         self.wins += int(change_pct >= 0)
         self.losses += int(change_pct < 0)
@@ -105,7 +176,9 @@ class SwTradeBot:
         self.side = ""
         self.entry_price = 0.0
         self.position_id = None
+        self.entry_order_cloid = ""
         self.log.info(f"trade_close cycle={self.cycle_id} reason={reason} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f} ts_now: {format_ms(now_ms)}")
+        self.status = "stopped"
 
     def _can_enter(self) -> bool:
         return self.config.max_cycles == 0 or self.cycle_count < self.config.max_cycles
@@ -114,25 +187,82 @@ class SwTradeBot:
         change = (price - self.entry_price) / self.entry_price * 100
         return change if self.side != "short" else -change
 
-    def _take_profit_hit(self, bar: Bar) -> bool:
-        if self.config.take_profit_pct <= 0:
-            return False
-        return bar.high >= self._take_profit_price() if self.side == "long" else bar.low <= self._take_profit_price()
-
-    def _stop_loss_hit(self, bar: Bar) -> bool:
-        if self.config.stop_loss_pct <= 0:
-            return False
-        return bar.low <= self._stop_loss_price() if self.side == "long" else bar.high >= self._stop_loss_price()
-
-    def _take_profit_price(self) -> float:
-        pct = self.config.take_profit_pct / 100
-        return self.entry_price * (1 + pct if self.side == "long" else 1 - pct)
-
-    def _stop_loss_price(self) -> float:
-        pct = self.config.stop_loss_pct / 100
-        return self.entry_price * (1 - pct if self.side == "long" else 1 + pct)
-
     def _update_drawdown(self, price: float) -> None:
         equity = self.pnl_pct + self._change_pct(price)
         self.peak_pct = max(self.peak_pct, equity)
         self.max_drawdown_pct = max(self.max_drawdown_pct, self.peak_pct - equity)
+
+    def _uses_trigger_exits(self) -> bool:
+        return self.config.take_profit_pct > 0 or self.config.stop_loss_pct > 0
+
+    def _trigger_exit_orders(self, side: str, entry_price: Decimal, parent_cloid: str, ts_ms: int) -> list[Order]:
+        if not self._uses_trigger_exits():
+            return []
+        symbol = self.config.symbol or "UNKNOWN"
+        exit_side = "sell" if side == "long" else "buy"
+        rows = []
+        if self.config.take_profit_pct > 0:
+            rows.append(
+                Order(
+                    symbol=symbol,
+                    side=exit_side,
+                    size=Decimal("1"),
+                    price=self._trigger_price(side, entry_price, self.config.take_profit_pct, "tp"),
+                    cloid=f"tradebot-{self.config.config_id}-{self.cycle_id}-take_profit-{ts_ms}",
+                    role="take_profit",
+                    reduce_only=True,
+                    kind="trigger",
+                    trigger_price=self._trigger_price(side, entry_price, self.config.take_profit_pct, "tp"),
+                    tpsl="tp",
+                    parent_cloid=parent_cloid,
+                )
+            )
+        if self.config.stop_loss_pct > 0:
+            rows.append(
+                Order(
+                    symbol=symbol,
+                    side=exit_side,
+                    size=Decimal("1"),
+                    price=self._trigger_price(side, entry_price, self.config.stop_loss_pct, "sl"),
+                    cloid=f"tradebot-{self.config.config_id}-{self.cycle_id}-stop_loss-{ts_ms}",
+                    role="stop_loss",
+                    reduce_only=True,
+                    kind="trigger",
+                    trigger_price=self._trigger_price(side, entry_price, self.config.stop_loss_pct, "sl"),
+                    tpsl="sl",
+                    parent_cloid=parent_cloid,
+                )
+            )
+        return rows
+
+    def _trigger_price(self, side: str, entry_price: Decimal, pct: float, tpsl: str) -> Decimal:
+        offset = entry_price * Decimal(str(pct)) / Decimal("100")
+        if (side == "long" and tpsl == "tp") or (side == "short" and tpsl == "sl"):
+            return entry_price + offset
+        return entry_price - offset
+
+    def _sync_position(self) -> None:
+        if not self.active or self.position_id is None:
+            return
+        position = self.account.ledger.position(self.position_id)
+        if position is None:
+            raise RuntimeError(f"active trade position missing from ledger: {self.position_id}")
+        position.recalc()
+        if position.status != "closed":
+            return
+        exit_orders = [order for order in position.orders if order.reduce_only and order.filled_size > 0]
+        exit_order = exit_orders[-1] if exit_orders else None
+        if exit_order is None:
+            return
+        change_pct = self._change_pct(float(exit_order.avg_fill_price))
+        self.pnl_pct += change_pct
+        self.wins += int(change_pct >= 0)
+        self.losses += int(change_pct < 0)
+        self.cycle_count += 1
+        self.active = False
+        self.side = ""
+        self.entry_price = 0.0
+        self.position_id = None
+        self.entry_order_cloid = ""
+        self.status = "stopped"
+        self.log.info(f"trade_close cycle={self.cycle_id} reason={exit_order.role} pnl_pct={change_pct:.4f} total_pnl_pct={self.pnl_pct:.4f} ts_now: {format_ms(exit_order.fills[-1].ts_ms)}")

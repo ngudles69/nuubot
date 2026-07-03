@@ -16,6 +16,7 @@ from nuubot.sweeps.sweep import Sweep
 def main() -> None:
     invalid_workers_do_not_reset_sweep()
     update_waits_for_run_lock_and_refuses_running_sweep()
+    parse_template_rejects_missing_executor_account()
     launch_failure_marks_rows_failed()
     partial_launch_failure_drains_started_futures()
 
@@ -73,10 +74,7 @@ def update_waits_for_run_lock_and_refuses_running_sweep() -> None:
         )
         datastore.insert(db, SweeprunRow(sweeprun_id=1, sweep_id=1, config_json="{}", results_json="{}", status="complete"))
 
-        nuubot = SimpleNamespace(
-            datastore=datastore,
-            config=SimpleNamespace(paths=SimpleNamespace(data_dir="workspace/data")),
-        )
+        nuubot = sweep_manager_nuubot(datastore, "sgrid")
         manager = SweepManager(nuubot, {}, threading.Lock())
         manager.run_lock.acquire()
         outcome: dict[str, str] = {}
@@ -106,6 +104,17 @@ def update_waits_for_run_lock_and_refuses_running_sweep() -> None:
         assert sweep.status == "running"
         assert json.loads(sweep.config_json)["signalers"]["01"][0]["items"][0]["params"]["fast"] == {"start": 6, "stop": 6, "step": 1}
         assert datastore.count(db, SweeprunRow) == 1
+
+
+def parse_template_rejects_missing_executor_account() -> None:
+    manager = SweepManager(sweep_manager_nuubot(None, "grid"), {}, threading.Lock())
+
+    try:
+        manager.parse_template(sweep_config(workers=1))
+    except RuntimeError as exc:
+        assert "sweep executor account not found in config.credentials.hyperliquid.accounts: sgrid" in str(exc)
+    else:
+        raise AssertionError("missing executor account should fail")
 
 
 def launch_failure_marks_rows_failed() -> None:
@@ -223,6 +232,18 @@ def _update_sweep(manager: SweepManager, config: dict, outcome: dict[str, str]) 
         outcome["ok"] = "updated"
     except Exception as exc:
         outcome["error"] = str(exc)
+
+
+def sweep_manager_nuubot(datastore, *accounts: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        datastore=datastore,
+        config=SimpleNamespace(
+            paths=SimpleNamespace(data_dir="workspace/data"),
+            credentials=SimpleNamespace(
+                hyperliquid=SimpleNamespace(accounts=[SimpleNamespace(name=account) for account in accounts])
+            ),
+        ),
+    )
 
 
 def sweep_config(*, workers: int, fast: dict[str, int] | None = None) -> dict:

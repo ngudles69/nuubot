@@ -11,8 +11,8 @@ from typing import Any
 
 from nuubot.datastore import AccountRow, BotrunRow, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
 from nuubot.nuubot import Nuubot
-from nuubot.sweeps.sweep import Sweep
-from nuubot.sweeps.template import expand_sweep_template
+from nuubot.sweeps.sweep import Sweep, ensure_executor_accounts_exist
+from nuubot.sweeps.template import expand_sweep_template, generate_sweepruns
 
 SWEEP_DB_RE = re.compile(r"^sweep_(\d+)\.db$")
 
@@ -184,6 +184,13 @@ class SweepManager:
             "total_count": total_count,
             "progress": progress,
             "sweeprun_count": len(rows),
+            "account_count": self.nuubot.datastore.count(path, AccountRow),
+            "botrun_count": self.nuubot.datastore.count(path, BotrunRow),
+            "event_count": self.nuubot.datastore.count(path, EventRow),
+            "signal_count": self.nuubot.datastore.count(path, EventRow, event="signal"),
+            "position_count": self.nuubot.datastore.count(path, PositionRow),
+            "order_count": self.nuubot.datastore.count(path, OrderRow),
+            "fill_count": self.nuubot.datastore.count(path, FillRow),
             "win_loss": pnl["win_loss"],
             "profit_factor": pnl["profit_factor"],
             "ev": pnl["ev"],
@@ -202,7 +209,8 @@ class SweepManager:
             raise RuntimeError(f"invalid sweep_id: {sweep_id}")
         if not self.nuubot.datastore.dbpath(db).exists():
             raise RuntimeError(f"sweep DB missing: {db}")
-        return Sweep(self.nuubot.datastore, sweep_id, self.result_threads, self.run_lock).run()
+        account_names = {account.name for account in self.nuubot.config.credentials.hyperliquid.accounts}
+        return Sweep(self.nuubot.datastore, sweep_id, self.result_threads, self.run_lock, account_names).run()
 
     def parse_template(self, template: str | dict[str, Any]) -> dict[str, Any]:
         """Parse a JSON, TOML, or dict sweep template."""
@@ -221,7 +229,10 @@ class SweepManager:
 
         # Expand template.
         data_dir = f"{self.nuubot.config.paths.data_dir}/binance/raw/spot/monthly/klines"
-        return expand_sweep_template(data, data_dir)
+        template_data = expand_sweep_template(data, data_dir)
+        account_names = {account.name for account in self.nuubot.config.credentials.hyperliquid.accounts}
+        ensure_executor_accounts_exist(generate_sweepruns(template_data), account_names)
+        return template_data
 
     def _list_sweep(self, path: Path, archived: bool = False) -> dict[str, Any]:
         """Build one sweep list row."""

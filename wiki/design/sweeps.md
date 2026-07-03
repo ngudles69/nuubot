@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-07-02
+updated: 2026-07-03
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -11,11 +11,35 @@ tags: [design, sweeps]
 
 ## definitions
 
-- `bot`: one runtime instance lifecycle: init, start, loop, stop.
-- `sweeprun`: one generated parameter set over one market/window period.
-- `botrun`: one actual bot start/stop instance inside a sweeprun.
 - `sweep`: hyperparameter definition that permutates into sweepruns.
+- `sweeprun`: one generated parameter set over one market/window period.
+- `sweeprun runner`: fixed-period server-run simulator for one sweeprun.
+- `sweep signaler`: long-lived signal component owned by the sweeprun runner.
+- `sweep bot`: active executor instance started by a sweeprun entry signal.
+- `botrun`: one actual bot start/stop episode inside a sweeprun.
 - `ProcessPoolExecutor` runs sweeps as stateless tasks.
+
+Ownership:
+
+```text
+Sweep
+  creates Sweeprun rows
+
+Sweeprun
+  owns replay feed
+  owns sweep signaler
+  owns active bot slot
+  owns counters, timing, and final sweeprun result persistence
+
+Sweep bot / Executor
+  owns trade state
+  receives event + signal + risk_score
+  decides its own exit
+  exposes status
+```
+
+`Sweeprun` is not a bot. It is the sweep equivalent of a server run over a
+fixed historical period.
 
 ## hard rule
 
@@ -88,6 +112,7 @@ mode = "standard"  # or "fast"
 `sweep.mode` does not control strategy:
 
 - executor choice.
+- executor account name.
 - signaler choice.
 - risk logic.
 - strategy config.
@@ -117,6 +142,10 @@ Never silently swap `grid` to `grid_fast` because `mode = "fast"`.
 
 Persistence rule:
 
+- `[sweep].savedb = true` stores signal/account/botrun/position/order/fill
+  detail rows; `false` stores only sweep and sweeprun status/result rows for
+  speed comparison. Detail rows are buffered by the worker and written once
+  when the sweeprun result is saved.
 - fast sweep: process-pool task writes final result to the sweep SQLite DB.
 - standard sweep: process-pool task writes final result to the sweep SQLite DB.
 - mainnet/testnet/simnet: bot runtime writes full persistence to its own SQLite
@@ -297,8 +326,9 @@ Rules:
 - `calc()` calculates the full loaded dataset, including warmup rows.
 - `check()` picks the latest closed calculated row as of the requested time and
   returns that row's `SwSignal`.
-- Executor/sweeprun code decides whether to call `check()` or ignore entry
-  signals while a bot is active. That state is not signaler concern.
+- Sweeprun keeps calling `check()` for the full replay window.
+- Sweeprun decides whether an entry signal can start a bot. That state is not
+  signaler concern.
 - `calc()` adds whatever columns the signaler needs to its frames.
 - `check()` reads those custom columns and returns `SwSignal`.
 - Indicator column names are private to each signaler.
@@ -364,6 +394,51 @@ load frames, calculate columns, and check the latest complete calculated bar.
 ## executor comparison
 
 Compare executors by running normal sweepruns.
+
+Sweep executors use the sweep-local `SwExecutor` protocol:
+
+```text
+init()
+start()
+next(bar, signal, risk_score)
+stop(last_bar, bars_processed) -> result
+status
+telemetry()
+```
+
+Sweeprun owns the replay loop, sweep signaler, active bot slot, timing, final
+row status, and final sweeprun DB persistence. The active executor owns strategy
+state, trade entry/exit behavior, strategy telemetry, and its own stopped
+status. `SwTradeBot` is the reference sweep executor shape.
+
+Current runner loop:
+
+```text
+for event in replay:
+  signal = signaler.check(event.ts_ms)
+
+  if active_bot is None and signal has entry:
+    active_bot = create/start executor
+
+  if active_bot is not None:
+    active_bot.next(event, signal, risk_score)
+
+  if active_bot is not None and active_bot.status == "stopped":
+    active_bot = None
+```
+
+When replay data ends, `Sweeprun.stop()` stops any active bot gracefully before
+saving the final sweeprun result.
+
+Account detail now follows the `TradingAccount` boundary: one Hyperliquid
+account owns exchange/simulator access plus one ledger. Sweeprun feeds replay
+ticks to active bot accounts through `ingest_bbo()`, then calls account
+`recon()`. The active executor still owns strategy decisions and sends order
+intents through `place_orders()` / `cancel_orders()` / `close_position()`.
+The executor definition owns the selected account name, and sweep create/run
+validates that name against loaded Hyperliquid credentials. Ledger, position,
+order, fill, simulator, and recon details remain under the active bot/executor
+side of the boundary, not in Sweeprun.
 
 Example:
 

@@ -90,7 +90,7 @@ params = { sma = 200 }
 - Runtime owns a list of executors from the start.
 - Executors call `Risk.score()` as needed.
 - Executors call `Signaler` as needed.
-- Executors call `ExchangeAccount` directly.
+- Executors call `TradingAccount` directly.
 - Executors own normal strategy position lifecycle.
 
 Optimized executors are separate named executors. A fast executor is not a
@@ -112,7 +112,7 @@ Select optimized executors explicitly in config:
 name = "grid_fast"
 ```
 
-`ExchangeAccount` must support batch submit shapes needed by executor trade:
+`TradingAccount` must support batch submit shapes needed by executor trade:
 
 ```text
 entry
