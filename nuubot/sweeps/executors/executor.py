@@ -39,3 +39,9 @@ def create_executor(config_id: int, config: Any, run_log: Any, sweeprun: Sweepru
         )
         return SwTradeBot(trade_config, run_log)
     raise ValueError(f"unsupported sweep executor: {config.name}")
+
+
+def chart_display(config: dict[str, Any], positions: list[Any], orders: list[Any], timestamps: list[int]) -> dict[str, Any]:
+    if config.get("name") == "tradebot":
+        return SwTradeBot.chart_display(positions, orders, timestamps)
+    return {"markers": [], "primitives": []}

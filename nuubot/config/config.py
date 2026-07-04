@@ -15,8 +15,12 @@ def load_config(path: Path) -> AppConfig:
 
 
 def read_config_data(path: Path) -> dict[str, Any]:
-    data = tomllib.loads(path.with_name("config.toml").read_text(encoding="utf-8"))
-    data["credentials"] = tomllib.loads(path.with_name("credentials.toml").read_text(encoding="utf-8"))
+    config_path = path.with_name("config.toml")
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    credentials_path = config_path.with_name("credentials.toml")
+    if not credentials_path.exists():
+        credentials_path = Path(data["workspace"]["root"]) / data["paths"]["config_dir"] / "credentials.toml"
+    data["credentials"] = tomllib.loads(credentials_path.read_text(encoding="utf-8"))
     return data
 
 

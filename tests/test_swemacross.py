@@ -6,6 +6,7 @@ from nuubot.core.dtypes import Timeframe
 from nuubot.core.market_data import interval_ms
 from nuubot.core.models.mconfig import SignalerConfig
 from nuubot.sweeps.signalers import SwEmacross
+from nuubot.sweeps.signalers.signaler import chart_display
 
 
 def main() -> None:
@@ -14,6 +15,7 @@ def main() -> None:
     calculates_and_checks_latest_closed_bar()
     check_picks_latest_closed_row()
     rejects_stale_check_time()
+    chart_display_returns_ema_lines_and_signal_markers()
 
 
 def validates_timeframe() -> None:
@@ -90,6 +92,34 @@ def rejects_stale_check_time() -> None:
         assert "stale SwEmacross signal" in str(exc)
     else:
         raise AssertionError("SwEmacross accepted stale check time")
+
+
+def chart_display_returns_ema_lines_and_signal_markers() -> None:
+    interval = interval_ms("1h")
+    start_ms = interval * 13
+    stop_ms = interval * 19
+    rows = signal_frame(13).iter_rows(named=True)
+    candles = [dict(row) for row in rows]
+
+    def load_candles(start: int, stop: int) -> list[dict]:
+        return [row for row in candles if start <= row["ts_ms"] <= stop]
+
+    display = chart_display(
+        {"name": "emacross", "interval": "1h", "params": {"fast": 2, "slow": 3}},
+        load_candles,
+        start_ms,
+        stop_ms,
+    )
+
+    assert display["source"] == "regenerated"
+    assert [line["name"] for line in display["lines"]] == ["EMA 2", "EMA 3"]
+    assert len(display["lines"][0]["data"]) == 7
+    assert any(marker["reason"] == "ema_cross_up" for marker in display["markers"])
+    long_marker = next(marker for marker in display["markers"] if marker["reason"] == "ema_cross_up")
+    marker_index = long_marker["value"][0]
+    assert long_marker["value"][1] < candles[marker_index + 13]["low"]
+    candle = candles[marker_index + 13]
+    assert long_marker["value"][1] == round(candle["low"] - candle["close"] * 0.02, 8)
 
 
 def initialized_signaler() -> SwEmacross:

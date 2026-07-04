@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Callable, Protocol
 
 from nuubot.core.data_loader import DataLoader
 from nuubot.core.models.mconfig import SignalerConfig
@@ -36,3 +36,16 @@ def create_signaler(config: SignalerConfig, symbol: str) -> SwSignaler:
         signaler.init(config, symbol)
         return signaler
     raise ValueError(f"unsupported sweep signaler: {config.name}")
+
+
+def chart_display(
+    config: dict[str, Any],
+    load_candles: Callable[[int, int], list[dict[str, Any]]],
+    start_ms: int,
+    stop_ms: int,
+) -> dict[str, Any]:
+    if config.get("name") == "emacross":
+        from nuubot.sweeps.signalers.swemacross import SwEmacross
+
+        return SwEmacross.chart_display(config, load_candles, start_ms, stop_ms)
+    return {"source": "none", "lines": [], "markers": []}
