@@ -26,6 +26,11 @@ class TradeConfig:
     simulator_slippage_pct: float = 0.05
     simulator_commission_pct: float = 0.05
     simulator_recon_interval_ms: int = 60_000
+    investment_usdc: float = 10000.0
+    trade_use: str = "pct"
+    trade_amount: float = 100.0
+    trade_pct: float = 2.0
+    trade_usdc: float | None = None
 
 
 class TradeLedger:

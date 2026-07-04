@@ -80,6 +80,10 @@ Rules:
 mode = "fast"
 workers = 8
 savedb = true
+investment_usdc = 10000
+trade_use = "pct"
+trade_amount = 100
+trade_pct = 2.0
 
 [[data.01]]
 [data.01.sweeprun]
@@ -135,6 +139,11 @@ it from the same metadata.
 - `[sweep].savedb` controls signal/account/ledger detail rows. Sweep and
   sweeprun status/result rows are always stored. Detail rows are buffered and
   saved once per sweeprun.
+- `[sweep].investment_usdc` defaults to `10000`.
+- `[sweep].trade_use` defaults to `pct`; valid values are `pct` and `amount`.
+- `[sweep].trade_pct` is percent of starting investment per trade.
+- `[sweep].trade_amount` is used only when `trade_use = "amount"`.
+- Generated trade size must be at least `10` USDC.
 - Data sets must generate `sweeprun` with `start` and `end`.
 - Executor sets must include `symbol`, `interval`, and executor parameters.
 - Signaler sets generate final `[signaler]`.

@@ -114,3 +114,7 @@ class BotRunResult:
     max_drawdown_pct: float
     ticks: int
     cycles: int
+    starting_balance_usdc: float = 0.0
+    ending_balance_usdc: float = 0.0
+    trade_usdc: float = 0.0
+    net_pnl_usdc: float = 0.0

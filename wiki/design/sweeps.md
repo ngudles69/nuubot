@@ -1,7 +1,7 @@
 ---
 title: sweeps design
 created: 2026-06-20
-updated: 2026-07-03
+updated: 2026-07-04
 type: wiki
 status: active
 tags: [design, sweeps]
@@ -234,16 +234,112 @@ Sweep persistence:
 - Timing belongs under `results_json.timing`.
 - Do not add separate sweeprun timing columns such as `elapsed_ms`,
   `load_ms`, `indicator_ms`, or `execution_ms`.
+- Sweep trade sizing defaults to `investment_usdc = 10000`,
+  `trade_use = "pct"`, `trade_amount = 100`, and `trade_pct = 2.0`.
+- `trade_use = "pct"` uses `investment_usdc * trade_pct / 100` per trade.
+  `trade_use = "amount"` uses `trade_amount` per trade.
+- The runner tracks `current_balance_usdc` across botruns and does not start a
+  new trade when the configured trade size or the `10` USDC minimum cannot be
+  funded.
 
-Minimum result:
+Minimum result metrics:
 
-- config id.
-- pnl.
-- win count.
-- loss count.
-- trade count.
-- max drawdown.
-- speed timing.
+Result JSON may group metrics by category. Metric keys inside each group stay
+flat. For example, store `risk.max_dd`; do not store or emit `risk_max_dd`.
+
+Identity:
+
+- sweep_id.
+- sweeprun_id.
+- symbol.
+- start.
+- stop.
+- signaler.
+- executor.
+- params.
+
+Activity:
+
+- ticks.
+- signals.
+- positions.
+- orders.
+- fills.
+- trades.
+
+PnL:
+
+- starting_balance.
+- ending_balance.
+- gross_win.
+- gross_loss.
+- net_pnl.
+- net_pnl_pct.
+- fees.
+- slippage.
+
+Trade quality:
+
+- wins.
+- losses.
+- breakeven.
+- win_rate.
+- avg_win.
+- avg_loss.
+- largest_win.
+- largest_loss.
+- payoff_ratio.
+
+Edge:
+
+- profit_factor.
+- ev.
+- ev_pct.
+
+Streaks:
+
+- max_win_streak.
+- max_loss_streak.
+
+Risk:
+
+- max_dd.
+- max_dd_pct.
+- dd_duration.
+
+Return/risk:
+
+- sharpe.
+- sortino.
+- calmar.
+- recovery_factor.
+
+Time:
+
+- avg_trade_duration.
+- exposure_pct.
+- elapsed_ms.
+
+Sweep report:
+
+- canonical terminal command is
+  `uv run python -m nuubot.sweeps.report <sweep_id>`.
+- daily shell shortcut is `./report.sh <sweep_id>`.
+- report implementation lives under `nuubot/cli/**`.
+- keep one report command; do not add parallel sweep result CLIs.
+- do not sum sweeprun return or PnL percentages.
+- show per-sweeprun best and worst.
+- show min, p25, median, mean, p75, and max for return and risk metrics.
+- sum only counts and timing such as ticks, orders, fills, and wall time.
+
+TUI:
+
+- common command is `./tui.sh`.
+- CLI command is `uv run python -m nuubot.cli tui`.
+- module command is `uv run python -m nuubot.cli.tui`.
+- TUI implementation lives under `nuubot/cli/tui/**`.
+- Home menu starts with sweeps and bots.
+- Sweeps screen lists sweep rows and supports digit-prefix jumping by sweep id.
 
 Speed timing:
 

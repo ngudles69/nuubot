@@ -6,6 +6,8 @@ import logging
 from nuubot.account import TradingAccount
 from nuubot.bots.executors.tradebot.tradebot import TradeConfig
 from nuubot.core.dtypes import Bar
+from nuubot.sweeps.models import SweeprunConfig
+from nuubot.sweeps.sweeprun import Sweeprun
 from nuubot.sweeps.executors import SwTradeBot
 from nuubot.sweeps.signalers import SwSignal
 
@@ -15,12 +17,14 @@ def main() -> None:
     asyncio.run(tradebot_submits_trigger_exits())
     asyncio.run(tradebot_stop_recons_before_manual_close())
     asyncio.run(tradebot_manual_close_pnl_uses_actual_fills())
+    asyncio.run(tradebot_default_pct_sizes_trade_from_investment())
     asyncio.run(tradebot_recons_at_most_once_per_minute())
     asyncio.run(tradebot_validates_risk_score())
+    sweeprun_stops_funding_when_balance_cannot_cover_trade()
 
 
 async def tradebot_one_step_loop_shape() -> None:
-    bot = SwTradeBot(TradeConfig(1, 0.0, 0.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0), logging.getLogger("test"))
+    bot = SwTradeBot(full_investment_config(1, 0.0, 0.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0), logging.getLogger("test"))
     await bot.init()
     await bot.start()
 
@@ -34,11 +38,13 @@ async def tradebot_one_step_loop_shape() -> None:
     assert result.trades == 1
     assert result.wins == 1
     assert result.pnl_pct == 10.0
+    assert result.net_pnl_usdc == 10.0
+    assert result.ending_balance_usdc == 110.0
     assert not bot.telemetry()["active"]
 
 
 async def tradebot_submits_trigger_exits() -> None:
-    bot = SwTradeBot(TradeConfig(1, 3.0, 1.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0, simulator_recon_interval_ms=0), logging.getLogger("test"))
+    bot = SwTradeBot(full_investment_config(1, 3.0, 1.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0, simulator_recon_interval_ms=0), logging.getLogger("test"))
     await bot.init()
     await bot.start()
 
@@ -54,7 +60,7 @@ async def tradebot_submits_trigger_exits() -> None:
 
 
 async def tradebot_stop_recons_before_manual_close() -> None:
-    bot = SwTradeBot(TradeConfig(1, 3.0, 1.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0, simulator_recon_interval_ms=60_000), logging.getLogger("test"))
+    bot = SwTradeBot(full_investment_config(1, 3.0, 1.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0, simulator_recon_interval_ms=60_000), logging.getLogger("test"))
     await bot.init()
     await bot.start()
 
@@ -75,20 +81,35 @@ async def tradebot_stop_recons_before_manual_close() -> None:
 
 
 async def tradebot_manual_close_pnl_uses_actual_fills() -> None:
-    bot = SwTradeBot(TradeConfig(1, 0.0, 0.0, 0, simulator_slippage_pct=10, simulator_commission_pct=0), logging.getLogger("test"))
+    bot = SwTradeBot(full_investment_config(1, 0.0, 0.0, 0, simulator_slippage_pct=10, simulator_commission_pct=0), logging.getLogger("test"))
     await bot.init()
     await bot.start()
 
     await bot.next(Bar(1, 100.0, 100.0, 100.0, 100.0, 1.0), SwSignal(enter_long=True, reason="entry", signal_ts_ms=1), 1)
     result = await bot.stop(Bar(2, 100.0, 100.0, 100.0, 100.0, 1.0), 1)
 
-    assert round(result.pnl_pct, 4) == round(-20 / 110 * 100, 4)
+    assert round(result.pnl_pct, 4) == -20.0
+    assert result.net_pnl_usdc == -20.0
     assert result.losses == 1
+
+
+async def tradebot_default_pct_sizes_trade_from_investment() -> None:
+    bot = SwTradeBot(TradeConfig(1, 0.0, 0.0, 0, simulator_slippage_pct=0, simulator_commission_pct=0), logging.getLogger("test"))
+    await bot.init()
+    await bot.start()
+
+    await bot.next(Bar(1, 100.0, 100.0, 100.0, 100.0, 1.0), SwSignal(enter_long=True, reason="entry", signal_ts_ms=1), 1)
+    await bot.next(Bar(2, 110.0, 110.0, 110.0, 110.0, 1.0), SwSignal(), 1)
+    result = await bot.stop(Bar(3, 110.0, 110.0, 110.0, 110.0, 1.0), 2)
+
+    assert result.trade_usdc == 200.0
+    assert result.net_pnl_usdc == 20.0
+    assert result.pnl_pct == 0.2
 
 
 async def tradebot_recons_at_most_once_per_minute() -> None:
     account = CountingAccount()
-    bot = SwTradeBot(TradeConfig(1, 0.0, 0.0, 0), logging.getLogger("test"), account)
+    bot = SwTradeBot(full_investment_config(1, 0.0, 0.0, 0), logging.getLogger("test"), account)
     await bot.init()
     await bot.start()
 
@@ -103,7 +124,7 @@ async def tradebot_recons_at_most_once_per_minute() -> None:
 
 
 async def tradebot_validates_risk_score() -> None:
-    bot = SwTradeBot(TradeConfig(1, 0.0, 0.0, 0), logging.getLogger("test"))
+    bot = SwTradeBot(full_investment_config(1, 0.0, 0.0, 0), logging.getLogger("test"))
     await bot.init()
     try:
         await bot.next(Bar(1, 100.0, 100.0, 100.0, 100.0, 1.0), SwSignal(), 0)
@@ -111,6 +132,14 @@ async def tradebot_validates_risk_score() -> None:
         assert "risk_score" in str(exc)
     else:
         raise AssertionError("SwTradeBot accepted invalid risk_score")
+
+
+def sweeprun_stops_funding_when_balance_cannot_cover_trade() -> None:
+    run = Sweeprun("", 1, 1, "test", config=sweeprun_config())
+    run.current_balance_usdc = 200
+    assert run._can_fund_trade()
+    run.current_balance_usdc = 199.99
+    assert not run._can_fund_trade()
 
 
 class CountingAccount(TradingAccount):
@@ -126,6 +155,38 @@ class CountingAccount(TradingAccount):
     def recon(self, ts_ms: int, reason: str) -> None:
         super().recon(ts_ms, reason)
         self.recons += 1
+
+
+def full_investment_config(config_id: int, take_profit_pct: float, stop_loss_pct: float, max_cycles: int, **kwargs: object) -> TradeConfig:
+    return TradeConfig(
+        config_id,
+        take_profit_pct,
+        stop_loss_pct,
+        max_cycles,
+        investment_usdc=100.0,
+        trade_use="amount",
+        trade_amount=100.0,
+        **kwargs,
+    )
+
+
+def sweeprun_config() -> SweeprunConfig:
+    return SweeprunConfig.model_validate(
+        {
+            "sweeprun": {
+                "start": "2025-01-01",
+                "end": "2025-01-02",
+                "data_dir": "workspace/data/binance/raw/spot/monthly/klines",
+                "investment_usdc": 10000,
+                "trade_use": "pct",
+                "trade_amount": 100,
+                "trade_pct": 2.0,
+            },
+            "signaler": {"name": "emacross", "interval": "1h", "params": {"fast": 5, "slow": 20}},
+            "executor": {"symbol": "BTCUSDT", "account": "sgrid", "interval": "1h", "name": "tradebot", "take_profit_pct": 0.0, "stop_loss_pct": 0.0, "max_cycles": 0},
+            "risk": {"score": 1},
+        }
+    )
 
 
 if __name__ == "__main__":

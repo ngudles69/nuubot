@@ -10,6 +10,8 @@ from nuubot.core.format import format_ms
 from nuubot.exchange import Simulator
 from nuubot.sweeps.signalers import SwSignal
 
+MIN_ORDER_USDC = Decimal("10")
+
 
 class SwTradeBot:
     def __init__(self, config: TradeConfig, run_log: Any, account: TradingAccount | None = None) -> None:
@@ -32,6 +34,9 @@ class SwTradeBot:
         self.cycle_count = 0
         self.last_risk_score = 1
         self.last_recon_ts_ms: int | None = None
+        self.starting_balance_usdc = Decimal(str(config.investment_usdc))
+        self.trade_usdc = Decimal("0")
+        self.net_pnl_usdc = Decimal("0")
 
     async def init(self) -> None:
         # Validate config.
@@ -45,6 +50,13 @@ class SwTradeBot:
             raise ValueError(f"max_cycles must be >= 0: {self.config.max_cycles}")
         if self.config.simulator_recon_interval_ms < 0:
             raise ValueError(f"simulator_recon_interval_ms must be >= 0: {self.config.simulator_recon_interval_ms}")
+        if self.config.investment_usdc <= 0:
+            raise ValueError(f"investment_usdc must be positive: {self.config.investment_usdc}")
+        if self.config.trade_use not in {"pct", "amount"}:
+            raise ValueError(f"trade_use must be pct or amount: {self.config.trade_use}")
+        self.trade_usdc = self._trade_usdc()
+        if self.trade_usdc < MIN_ORDER_USDC:
+            raise ValueError(f"trade_usdc must be at least {MIN_ORDER_USDC}: {self.trade_usdc}")
 
         # Init account.
         if self.account is None:
@@ -128,6 +140,10 @@ class SwTradeBot:
             max_drawdown_pct=self.max_drawdown_pct,
             ticks=ticks,
             cycles=self.cycle_count,
+            starting_balance_usdc=float(self.starting_balance_usdc),
+            ending_balance_usdc=float(self.starting_balance_usdc + self.net_pnl_usdc),
+            trade_usdc=float(self.trade_usdc),
+            net_pnl_usdc=float(self.net_pnl_usdc),
         )
 
     async def _open(self, bar: Bar, side: str, price: float, reason: str) -> None:
@@ -141,7 +157,7 @@ class SwTradeBot:
         order = Order(
             symbol=self.config.symbol or "UNKNOWN",
             side="buy" if side == "long" else "sell",
-            size=Decimal("1"),
+            size=self._order_size(price),
             price=Decimal(str(price)),
             cloid=entry_cloid,
             role="entry",
@@ -179,10 +195,12 @@ class SwTradeBot:
         exit_order = exit_orders[-1] if exit_orders else None
         if exit_order is None:
             raise RuntimeError(f"manual close did not produce an exit fill: position_id={position.position_id}")
-        change_pct = self._position_change_pct(position)
+        pnl_usdc = position.pnl()
+        self.net_pnl_usdc += pnl_usdc
+        change_pct = self._investment_change_pct(pnl_usdc)
         self.pnl_pct += change_pct
-        self.wins += int(change_pct >= 0)
-        self.losses += int(change_pct < 0)
+        self.wins += int(pnl_usdc >= 0)
+        self.losses += int(pnl_usdc < 0)
         self.cycle_count += 1
         self.active = False
         self.side = ""
@@ -195,12 +213,8 @@ class SwTradeBot:
     def _can_enter(self) -> bool:
         return self.config.max_cycles == 0 or self.cycle_count < self.config.max_cycles
 
-    def _change_pct(self, price: float) -> float:
-        change = (price - self.entry_price) / self.entry_price * 100
-        return change if self.side != "short" else -change
-
     def _update_drawdown(self, price: float) -> None:
-        equity = self.pnl_pct + self._change_pct(price)
+        equity = self.pnl_pct + self._investment_change_pct(self._open_pnl_usdc(price))
         self.peak_pct = max(self.peak_pct, equity)
         self.max_drawdown_pct = max(self.max_drawdown_pct, self.peak_pct - equity)
 
@@ -218,7 +232,7 @@ class SwTradeBot:
                 Order(
                     symbol=symbol,
                     side=exit_side,
-                    size=Decimal("1"),
+                    size=self._order_size(float(entry_price)),
                     price=self._trigger_price(side, entry_price, self.config.take_profit_pct, "tp"),
                     cloid=f"tradebot-{self.config.config_id}-{self.cycle_id}-take_profit-{ts_ms}",
                     role="take_profit",
@@ -234,7 +248,7 @@ class SwTradeBot:
                 Order(
                     symbol=symbol,
                     side=exit_side,
-                    size=Decimal("1"),
+                    size=self._order_size(float(entry_price)),
                     price=self._trigger_price(side, entry_price, self.config.stop_loss_pct, "sl"),
                     cloid=f"tradebot-{self.config.config_id}-{self.cycle_id}-stop_loss-{ts_ms}",
                     role="stop_loss",
@@ -264,10 +278,12 @@ class SwTradeBot:
         exit_order = exit_orders[-1] if exit_orders else None
         if exit_order is None:
             return
-        change_pct = self._position_change_pct(position)
+        pnl_usdc = position.pnl()
+        self.net_pnl_usdc += pnl_usdc
+        change_pct = self._investment_change_pct(pnl_usdc)
         self.pnl_pct += change_pct
-        self.wins += int(change_pct >= 0)
-        self.losses += int(change_pct < 0)
+        self.wins += int(pnl_usdc >= 0)
+        self.losses += int(pnl_usdc < 0)
         self.cycle_count += 1
         self.active = False
         self.side = ""
@@ -284,9 +300,22 @@ class SwTradeBot:
             raise RuntimeError(f"position missing entry fill: position_id={position.position_id}")
         return float(entry.avg_fill_price)
 
-    def _position_change_pct(self, position: Any) -> float:
-        position.recalc()
-        entry_cash = sum((abs(order.signed_cash()) for order in position.orders if not order.reduce_only), Decimal("0"))
-        if entry_cash == 0:
-            raise RuntimeError(f"position missing entry notional: position_id={position.position_id}")
-        return float(position.pnl() / entry_cash * Decimal("100"))
+    def _trade_usdc(self) -> Decimal:
+        if self.config.trade_usdc is not None:
+            return Decimal(str(self.config.trade_usdc))
+        if self.config.trade_use == "amount":
+            return Decimal(str(self.config.trade_amount))
+        return self.starting_balance_usdc * Decimal(str(self.config.trade_pct)) / Decimal("100")
+
+    def _order_size(self, price: float) -> Decimal:
+        return self.trade_usdc / Decimal(str(price))
+
+    def _investment_change_pct(self, pnl_usdc: Decimal) -> float:
+        return float(pnl_usdc / self.starting_balance_usdc * Decimal("100"))
+
+    def _open_pnl_usdc(self, price: float) -> Decimal:
+        if not self.active or not self.entry_price:
+            return Decimal("0")
+        size = self._order_size(self.entry_price)
+        change = (Decimal(str(price)) - Decimal(str(self.entry_price))) * size
+        return change if self.side != "short" else -change

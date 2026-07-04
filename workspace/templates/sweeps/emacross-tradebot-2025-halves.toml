@@ -5,6 +5,10 @@ savedb = true
 simulator_slippage_pct = 0.05
 simulator_commission_pct = 0.05
 simulator_recon_interval_ms = 60000
+investment_usdc = 10000
+trade_use = "pct"
+trade_amount = 100
+trade_pct = 2.0
 
 [[data.01]]
 [data.01.sweeprun]

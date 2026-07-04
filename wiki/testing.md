@@ -1,7 +1,7 @@
 ---
 title: testing
 created: 2026-06-21
-updated: 2026-07-02
+updated: 2026-07-04
 type: wiki
 status: active
 tags: [testing, smoke, runtime]
@@ -80,4 +80,11 @@ from the server/API or from a guarded proof script that calls
 uv run python -m nuubot.server
 curl.exe -X POST http://127.0.0.1:5001/api/sweeps/<sweep_id>/run
 curl.exe http://127.0.0.1:5001/api/sweeps/<sweep_id>/metrics
+./report.sh <sweep_id>
+uv run python -m nuubot.sweeps.report <sweep_id>
+./tui.sh
+uv run python -m nuubot.cli tui
 ```
+
+`nuubot.sweeps.report` is the canonical terminal sweep report command. Keep
+one console report entry point.

@@ -42,6 +42,9 @@ Rules for agents in `D:\rust\nuubot`.
 ## Commands
 
 - Use repo commands directly.
+- Common sweep report command: `./report.sh <sweep_id>`.
+- Common TUI command: `./tui.sh`.
+- CLI module command: `uv run python -m nuubot.cli ...`.
 - When asked to start the server, run `./server.sh`, wait 2 seconds, then test
   `/status`. If it is not up, wait 1 second and try again. Keep trying until
   10 seconds total. Only then assume startup failed and inspect logs/process

@@ -19,7 +19,7 @@ class SwExecutor(Protocol):
     def telemetry(self) -> dict[str, Any]: ...
 
 
-def create_executor(config_id: int, config: Any, run_log: Any, sweeprun: SweeprunSettings) -> SwExecutor:
+def create_executor(config_id: int, config: Any, run_log: Any, sweeprun: SweeprunSettings, trade_usdc: float | None = None) -> SwExecutor:
     if config.name == "tradebot":
         trade_config = TradeConfig(
             config_id,
@@ -31,6 +31,11 @@ def create_executor(config_id: int, config: Any, run_log: Any, sweeprun: Sweepru
             sweeprun.simulator_slippage_pct,
             sweeprun.simulator_commission_pct,
             sweeprun.simulator_recon_interval_ms,
+            sweeprun.investment_usdc,
+            sweeprun.trade_use,
+            sweeprun.trade_amount,
+            sweeprun.trade_pct,
+            trade_usdc,
         )
         return SwTradeBot(trade_config, run_log)
     raise ValueError(f"unsupported sweep executor: {config.name}")

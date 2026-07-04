@@ -9,6 +9,7 @@ dependencies = [
   "python-fasthtml>=0.14.4",
   "sqlalchemy>=2",
   "tabulate>=0.9",
+  "textual>=8.2.8",
   "websockets>=15.0.1",
 ]
 

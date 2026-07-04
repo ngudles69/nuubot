@@ -21,6 +21,10 @@ def expands_2025_halves_template_to_36_sweepruns() -> None:
     assert rows[0]["executor"]["account"] == "sgrid"
     assert rows[0]["executor"]["interval"] == "1h"
     assert rows[0]["sweeprun"]["savedb"] is True
+    assert rows[0]["sweeprun"]["investment_usdc"] == 10000
+    assert rows[0]["sweeprun"]["trade_use"] == "pct"
+    assert rows[0]["sweeprun"]["trade_amount"] == 100
+    assert rows[0]["sweeprun"]["trade_pct"] == 2.0
     assert rows[0]["sweeprun"]["end"] == "2025-06-30T23:59:59"
     assert rows[0]["signaler"]["params"] == {"fast": 5, "slow": 20}
     assert rows[-1]["sweeprun"]["meta"] == {"data": "02", "signaler": "01", "executor": "01", "risk": "default", "run": "036"}

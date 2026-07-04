@@ -55,6 +55,8 @@ class Sweeprun:
     last_bar: Bar | None = None
     start_ms: int = 0
     stop_ms: int = 0
+    current_balance_usdc: float = 0.0
+    skipped_trade_signals: int = 0
 
     async def execute(self) -> dict[str, Any]:
         """Run the full process-pool sweeprun lifecycle."""
@@ -108,6 +110,7 @@ class Sweeprun:
 
         # Set runtime values.
         self.config = config
+        self.current_balance_usdc = config.sweeprun.investment_usdc
 
         # Create run log.
         self.log_path = LOG_DIR / f"sweep_{self.sweep_id}_sweeprun_{self.sweeprun_id}.log"
@@ -214,6 +217,8 @@ class Sweeprun:
             "signal_events": len(self.signal_events),
             "botruns_started": self.botruns_started,
             "botruns_stopped": self.botruns_stopped,
+            "skipped_trade_signals": self.skipped_trade_signals,
+            "current_balance_usdc": self.current_balance_usdc,
             "executor": self._executor_telemetry(),
             "timing": self.timing,
         }
@@ -235,6 +240,8 @@ class Sweeprun:
             "signal_events": len(self.signal_events),
             "botruns_started": self.botruns_started,
             "botruns_stopped": self.botruns_stopped,
+            "skipped_trade_signals": self.skipped_trade_signals,
+            "current_balance_usdc": self.current_balance_usdc,
             "log_path": str(self.log_path),
             "tradebot": trade_result,
         }
@@ -274,6 +281,9 @@ class Sweeprun:
 
         # Start bot.
         if self.executor is None and (signal.enter_long or signal.enter_short):
+            if not self._can_fund_trade():
+                self.skipped_trade_signals += 1
+                return
             await self._start_active_bot()
 
         # Feed active bot.
@@ -307,7 +317,7 @@ class Sweeprun:
     async def _start_active_bot(self) -> None:
         # Create active bot.
         pt_executor_init_ts_ms = pt_now_ts_ms()
-        self.executor = create_executor(self.sweeprun_id, self.config.executor, self.run_log, self.config.sweeprun)
+        self.executor = create_executor(self.sweeprun_id, self.config.executor, self.run_log, self.config.sweeprun, self._trade_usdc())
         await self.executor.init()
         self.record_timing_ms("executor_init", pt_now_ts_ms() - pt_executor_init_ts_ms)
 
@@ -323,6 +333,7 @@ class Sweeprun:
         pt_executor_stop_ts_ms = pt_now_ts_ms()
         result = await self.executor.stop(event, self.bot_ticks_processed)
         self.bot_results.append(result)
+        self.current_balance_usdc += result.net_pnl_usdc
         if self.config.sweeprun.savedb:
             self.botrun_ledgers.append((self.botruns_stopped + 1, self.executor, result))
         self.executor = None
@@ -334,13 +345,17 @@ class Sweeprun:
         # Aggregate bot results.
         return BotRunResult(
             config_id=self.sweeprun_id,
-            pnl_pct=sum(result.pnl_pct for result in self.bot_results),
+            pnl_pct=sum(result.net_pnl_usdc for result in self.bot_results) / self.config.sweeprun.investment_usdc * 100,
             wins=sum(result.wins for result in self.bot_results),
             losses=sum(result.losses for result in self.bot_results),
             trades=sum(result.trades for result in self.bot_results),
             max_drawdown_pct=max((result.max_drawdown_pct for result in self.bot_results), default=0.0),
             ticks=self.ticks_processed,
             cycles=sum(result.cycles for result in self.bot_results),
+            starting_balance_usdc=self.config.sweeprun.investment_usdc,
+            ending_balance_usdc=self.current_balance_usdc,
+            trade_usdc=self._trade_usdc(),
+            net_pnl_usdc=sum(result.net_pnl_usdc for result in self.bot_results),
         )
 
     def _executor_telemetry(self) -> dict[str, Any]:
@@ -351,7 +366,17 @@ class Sweeprun:
         telemetry["status"] = self.executor.status if self.executor is not None else "stopped"
         telemetry["botruns_started"] = self.botruns_started
         telemetry["botruns_stopped"] = self.botruns_stopped
+        telemetry["current_balance_usdc"] = self.current_balance_usdc
+        telemetry["skipped_trade_signals"] = self.skipped_trade_signals
         return telemetry
+
+    def _trade_usdc(self) -> float:
+        if self.config.sweeprun.trade_use == "amount":
+            return self.config.sweeprun.trade_amount
+        return self.config.sweeprun.investment_usdc * self.config.sweeprun.trade_pct / 100
+
+    def _can_fund_trade(self) -> bool:
+        return self.current_balance_usdc >= max(10.0, self._trade_usdc())
 
     def _save_result(self, result: dict[str, Any]) -> None:
         """Persist final sweeprun result."""

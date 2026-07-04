@@ -8,6 +8,14 @@ from nuubot.datastore import Datastore
 
 def main() -> None:
     args = parse_args()
+    if args.command == "tui":
+        from nuubot.cli.tui import main as tui_main
+        tui_main()
+        return
+    if args.command == "report":
+        from nuubot.cli.sweeps.report import print_report
+        print_report(args.sweep_id)
+        return
     nuubot = nuubot_setup()
     try:
         run_command(nuubot.datastore, args)
@@ -46,5 +54,10 @@ def parse_args() -> argparse.Namespace:
 
     ping = sub.add_parser("ping")
     ping.add_argument("bot_id", type=int)
+
+    sub.add_parser("tui")
+
+    report = sub.add_parser("report")
+    report.add_argument("sweep_id", type=int)
 
     return parser.parse_args()
