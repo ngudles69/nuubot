@@ -9,9 +9,9 @@ account/ledger/order/fill persistence, and WebGUI sweep chart overlays.
 
 ## current status
 
-- Latest committed/pushed state before this work: `3ce1c25 Merge nuubot_webgui
-  sweep chart overlays`.
-- Current working tree has uncommitted fixes.
+- Latest committed/pushed evidence-fix state before the write-once hotfix:
+  `58c798b Fix sweep evidence persistence`.
+- Current working tree has the write-once `submit_ts` hotfix pending commit.
 - Accepted user decision: sweep detail account rows should be stored at
   sweeprun level so each sweeprun can stand on its own.
 - No active subagents remain.
@@ -20,6 +20,8 @@ account/ledger/order/fill persistence, and WebGUI sweep chart overlays.
 
 - `Order.submit_ts` is now set at order submit time in
   `TradingAccount.place_orders()`.
+- `TradingAccount.place_orders()` now fails loud if an order already has
+  `submit_ts`, so submit evidence is write-once.
 - Sweeprun ledger persistence now writes `OrderRow.submit_ts` from
   `order.submit_ts`, not from fill times.
 - Sweep account rows are now sweeprun-local:
@@ -42,6 +44,7 @@ account/ledger/order/fill persistence, and WebGUI sweep chart overlays.
 - `nuubot/server/sweepmgr.py`
 - `tests/test_swtradebot.py`
 - `tests/test_sweep_metrics.py`
+- `tests/test_sweep_trading.py`
 - `wiki/design/state.md`
 - `wiki/design/webgui.md`
 - `audits/07-04-foundation-adversarial-audit-v1.md`
@@ -52,6 +55,7 @@ account/ledger/order/fill persistence, and WebGUI sweep chart overlays.
 
 - `uv run python tests\test_sweep_metrics.py`
 - `uv run python tests\test_swtradebot.py`
+- `uv run python tests\test_sweep_trading.py`
 - `uv run python -m compileall -q nuubot tests`
 - `$env:PYTHONPATH='.'; Get-ChildItem tests\test_*.py | Sort-Object Name | ForEach-Object { uv run python $_.FullName }`
 - `git diff --check`

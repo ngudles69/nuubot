@@ -15,6 +15,7 @@ def main() -> None:
     test_simulator_trigger_order_reconciles_from_fills()
     test_simulator_trigger_fills_at_submitted_price_with_slippage()
     test_simulator_balance_fails_loud()
+    test_order_submit_ts_is_write_once()
     test_recon_keeps_partial_missing_order_partial()
     test_recon_does_not_double_count_cumulative_partial_fills()
 
@@ -164,6 +165,25 @@ def test_simulator_balance_fails_loud() -> None:
         assert "simulator balance" in str(exc)
     else:
         raise AssertionError("simulator returned fake balance")
+
+
+def test_order_submit_ts_is_write_once() -> None:
+    account = TradingAccount(simulator=Simulator(0, 0))
+    account.init()
+    position = account.create_position("BTC")
+    order = Order("BTC", "buy", Decimal("1"), Decimal("100"), "entry-1")
+    position.add_order(order)
+    account.place_position(position, 1)
+
+    try:
+        account.place_orders([order], 2)
+    except RuntimeError as exc:
+        assert "order already submitted" in str(exc)
+        assert "entry-1" in str(exc)
+    else:
+        raise AssertionError("duplicate order submit overwrote submit_ts")
+
+    assert order.submit_ts == 1
 
 
 def test_recon_keeps_partial_missing_order_partial() -> None:

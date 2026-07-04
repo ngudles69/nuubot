@@ -44,6 +44,9 @@ class TradingAccount:
 
     def place_orders(self, orders: list[Order], ts_ms: int) -> list[OrderResult]:
         for order in orders:
+            if order.submit_ts:
+                raise RuntimeError(f"order already submitted: cloid={order.cloid} submit_ts={order.submit_ts}")
+        for order in orders:
             order.submit_ts = ts_ms
         results = self.simulator.place_orders(orders, ts_ms)
         changed: set[int] = set()
