@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -241,6 +242,8 @@ class SweepManager:
             start_ms,
             stop_ms,
         )
+        indicators["markers"] = _signal_markers_from_events(self.nuubot.datastore.select(path, EventRow, event="signal"), sweeprun_id, timestamps)
+        indicators["marker_source"] = "persisted_events"
         executor_display = executor_chart_display(config.get("executor", {}), positions, orders, timestamps)
 
         return {
@@ -655,6 +658,38 @@ def _chart_tables(
             "config_json": json.dumps(config, indent=2, sort_keys=True),
         },
     ]
+
+
+def _signal_markers_from_events(events: list[EventRow], sweeprun_id: int, timestamps: list[int]) -> list[dict[str, Any]]:
+    if not timestamps:
+        return []
+    markers: list[dict[str, Any]] = []
+    for event in events:
+        data = json.loads(event.data_json or "{}")
+        if data.get("sweeprun_id") != sweeprun_id:
+            continue
+        kind = "enter_long" if data.get("enter_long") else "enter_short" if data.get("enter_short") else "exit_long" if data.get("exit_long") else "exit_short" if data.get("exit_short") else ""
+        if not kind:
+            continue
+        ts_ms = int(data.get("signal_ts_ms") or event.event_ts or 0)
+        index = bisect_right(timestamps, ts_ms) - 1
+        index = max(0, min(len(timestamps) - 1, index))
+        close = float(data.get("close") or 0)
+        high = float(data.get("high") or close)
+        low = float(data.get("low") or close)
+        pad = close * 0.02
+        price = high + pad if "short" in kind else low - pad
+        color = "#ff1744" if "short" in kind else "#00e676"
+        markers.append(
+            {
+                "name": kind,
+                "value": [index, round(price, 8)],
+                "reason": str(data.get("reason") or event.message or ""),
+                "time": _chart_time(ts_ms),
+                "itemStyle": {"color": "rgba(0,0,0,0)", "borderColor": color, "borderWidth": 2.4},
+            }
+        )
+    return markers
 
 
 def _bot_tree_row(

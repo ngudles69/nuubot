@@ -1,128 +1,102 @@
 # handoff
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 ## focus
 
-Sweep report CLI, first Textual TUI slice, and sweep trade sizing.
+Foundation evidence fixes after the adversarial review of sweeps, `SwTradeBot`,
+account/ledger/order/fill persistence, and WebGUI sweep chart overlays.
 
 ## current status
 
-- Latest committed baseline: `6d464cc Fix sweep account audit issues`.
-- Current worktree has uncommitted CLI/TUI/report changes.
-- Report implementation moved under `nuubot/cli/**`.
-- Canonical report command remains `uv run python -m nuubot.sweeps.report <sweep_id>`.
-- Daily report shortcut is `./report.sh <sweep_id>`.
-- First TUI slice lives under `nuubot/cli/tui/**`.
-- Daily TUI shortcut is `./tui.sh`.
-- `textual>=8.2.8` was added to `pyproject.toml` and `uv.lock`.
-- Old root report module `nuubot/sweep.py` was deleted.
-- Sweep templates now default to `investment_usdc = 10000`,
-  `trade_use = "pct"`, `trade_amount = 100`, and `trade_pct = 2.0`.
-- Sweep execution now sizes orders by configured USDC trade value instead of
-  one whole coin.
-- `Sweeprun` tracks `current_balance_usdc` across botruns and skips new trades
-  when the configured trade size or 10 USDC minimum cannot be funded.
-- Fresh proof sweep `54` completed `36/36` with `0` failed.
+- Latest committed/pushed state before this work: `3ce1c25 Merge nuubot_webgui
+  sweep chart overlays`.
+- Current working tree has uncommitted fixes.
+- Accepted user decision: sweep detail account rows should be stored at
+  sweeprun level so each sweeprun can stand on its own.
+- No active subagents remain.
 
-## active agents
+## fixed
 
-None.
+- `Order.submit_ts` is now set at order submit time in
+  `TradingAccount.place_orders()`.
+- Sweeprun ledger persistence now writes `OrderRow.submit_ts` from
+  `order.submit_ts`, not from fill times.
+- Sweep account rows are now sweeprun-local:
+  `sr_<sweeprun_id>_<account_name>`.
+- Sweeprun-local `AccountRow.bot_id` is `None`; generated bot linkage remains
+  on botrun, position, order, and fill rows.
+- WebGUI sweep chart signal markers now come from persisted signal `EventRow`
+  payloads.
+- Regenerated indicator lines remain labeled `source = "regenerated"` and
+  marker evidence is separately labeled `marker_source = "persisted_events"`.
+- `wiki/design/state.md` documents sweeprun-local sweep account rows.
+- `wiki/design/webgui.md` documents persisted signal markers for completed
+  sweepruns.
 
 ## files changed
 
-- `AGENTS.md`
-- `HANDOFF.md`
-- `nuubot/cli/__main__.py`
-- `nuubot/cli/cli.py`
-- `nuubot/cli/sweeps/__init__.py`
-- `nuubot/cli/sweeps/report.py`
-- `nuubot/cli/tui/__init__.py`
-- `nuubot/cli/tui/__main__.py`
-- `nuubot/cli/tui/app.py`
-- `nuubot/bots/executors/tradebot/tradebot.py`
-- `nuubot/core/dtypes.py`
-- `nuubot/sweeps/executors/executor.py`
-- `nuubot/sweeps/executors/swtradebot.py`
-- `nuubot/sweeps/models.py`
+- `nuubot/account/account.py`
+- `nuubot/account/order.py`
 - `nuubot/sweeps/sweeprun.py`
-- `nuubot/sweeps/template.py`
-- `nuubot/sweeps/report.py`
-- `nuubot/sweep.py` deleted
-- `pyproject.toml`
-- `uv.lock`
-- `report.sh`
-- `tui.sh`
-- `wiki/design/sweeps.md`
-- `wiki/templates-sweeps.md`
-- `wiki/testing.md`
-- `workspace/templates/sweeps/emacross-tradebot-2025-halves.toml`
-- `tests/test_sweep_template.py`
+- `nuubot/server/sweepmgr.py`
 - `tests/test_swtradebot.py`
-
-## decisions made
-
-- CLI/TUI program code lives under `nuubot/cli/**`.
-- `nuubot.sweeps.report` stays as the canonical public report module and calls
-  the CLI implementation.
-- Keep one report command surface; do not add parallel result CLIs.
-- TUI is Textual-based.
-- First TUI slice is read-only except opening/refreshing views.
-- Home menu starts with sweeps and bots.
-- Sweeps screen supports digit-prefix jump by sweep id.
-- Bots screen lists bot DB files if present; this workspace currently has no
-  bot DBs.
-- `trade_use = "pct"` is the default. `trade_amount` stays in config but only
-  applies when `trade_use = "amount"`.
-- PnL percent is now account return based on `investment_usdc`, not summed
-  per-trade return against entry notional.
+- `tests/test_sweep_metrics.py`
+- `wiki/design/state.md`
+- `wiki/design/webgui.md`
+- `audits/07-04-foundation-adversarial-audit-v1.md`
+- `audits/07-05-foundation-evidence-fix-implementation-audit-v1.md`
+- `HANDOFF.md`
 
 ## proof run
 
+- `uv run python tests\test_sweep_metrics.py`
+- `uv run python tests\test_swtradebot.py`
 - `uv run python -m compileall -q nuubot tests`
-- `$env:PYTHONPATH='.';` all `tests\test_*.py`
+- `$env:PYTHONPATH='.'; Get-ChildItem tests\test_*.py | Sort-Object Name | ForEach-Object { uv run python $_.FullName }`
 - `git diff --check`
-- Restarted server on port `5001` so current code was active.
-- `curl.exe -X POST --data-binary @workspace/templates/sweeps/emacross-tradebot-2025-halves.toml http://127.0.0.1:5001/api/sweeps`
-  - created sweep `54`
-- `curl.exe -X POST http://127.0.0.1:5001/api/sweeps/54/run`
-- `curl.exe http://127.0.0.1:5001/api/sweeps/54/metrics`
-  - complete `36/36`
-  - failed `0`
-- `bash ./report.sh 54`
-- DB spot check for sweep `54`, sweeprun `1`:
-  - config `investment_usdc=10000`, `trade_use=pct`, `trade_pct=2.0`
-  - `trade_usdc=200`
-  - `ending_balance_usdc=9964.447849283122`
-  - `net_pnl_usdc=-35.5521507168922`
-  - `pnl_pct=-0.355521507168922`
-  - average `entry_cash=199.99705882352941`
-- `uv run python -m nuubot.sweeps.report 53`
-- `uv run python -m nuubot.cli report 53`
-- `bash ./report.sh 53`
-- `bash -lc './report.sh 53 >/tmp/nuubot-report.out'`
-- Textual test harness:
-  - opened home
-  - pressed `s`
-  - listed real sweeps
-  - digit-jumped to sweep `53`
-  - opened details
-  - returned home
-  - opened bots
-- `git diff --check`
-  - clean except existing LF/CRLF warnings.
+- Restarted stale server on port `5002`, started current-code server, and ran
+  sweep `55` through the HTTP API.
+- `bash ./report.sh 55`
+- SQLite proof on `workspace/db/sweep_55.db`.
+- `GET /sweeps/55/runs/1` chart payload check.
+
+Result:
+
+- Focused tests passed.
+- Full compile passed.
+- All `tests/test_*.py` passed.
+- `git diff --check` passed with LF/CRLF warnings only.
+- Read-only implementation audit recheck passed.
+- Current-code server is running on port `5002`, PID `11332`.
+- Sweep `55` completed `36/36` with `0` failed.
+- `workspace/db/sweep_55.db` proof:
+  - `submit_ts_zero|0`
+  - `account_count|36`
+  - `bad_account_bot_id|0`
+- Chart route proof:
+  - `"marker_source":"persisted_events"`
+  - `"source":"regenerated"`
 
 ## proof not run
 
-- Did not launch interactive `./tui.sh` directly because it owns the terminal.
-- Did not retest live Hyperliquid.
-- Did not launch interactive `./tui.sh` after the trade-sizing change.
+- No WebGUI Playwright/screenshot proof yet.
+- No live Hyperliquid proof.
+
+## deferred
+
+- Strategy modules still return renderer-shaped chart dictionaries.
+- `SweepManager` still owns too much WebGUI presentation assembly.
+- Custom WebGUI table JavaScript still needs explicit approval/documentation or
+  removal.
+- `HANDOFF2.md` cleanup remains pending.
 
 ## blockers
 
-None known.
+None known for the accepted evidence-fix scope.
 
 ## next action
 
-Review the uncommitted CLI/TUI/report/trade-sizing diff, then decide whether
-to run `./tui.sh` manually or commit the current slice.
+Next cleanup slice: decide and fix the remaining WebGUI architecture findings:
+renderer-shaped chart dictionaries, `SweepManager` presentation assembly,
+custom table JavaScript policy, and stale `HANDOFF2.md`.

@@ -461,12 +461,12 @@ class Sweeprun:
 
         # Build botrun identity.
         bot_id = self.sweeprun_id * 1_000_000 + botrun_index
-        acct_id = self.config.executor.account
+        acct_id = f"sr_{self.sweeprun_id}_{self.config.executor.account}"
         result_json = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
         config_json = json.dumps(self.config.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
 
         # Save ledger rows.
-        tx.upsert(AccountRow(acct_id=acct_id, bot_id=bot_id, role="trade", name=acct_id, exec_network="sweep", status="active"))
+        tx.upsert(AccountRow(acct_id=acct_id, bot_id=None, role="trade", name=self.config.executor.account, exec_network="sweep", status="active"))
         botrun = tx.insert(BotrunRow(sweeprun_id=self.sweeprun_id, bot_id=bot_id, botrun_index=botrun_index, config_json=config_json, results_json=result_json, status="complete"))
         for position in account.ledger.positions:
             db_position_id = bot_id * 1_000 + position.position_id
@@ -528,7 +528,7 @@ class Sweeprun:
                         position_id=db_position.position_id,
                         acct_id=acct_id,
                         submit_cloid=order.cloid,
-                        submit_ts=min(fill_times) if fill_times else 0,
+                        submit_ts=order.submit_ts,
                         submit_coin=order.symbol,
                         submit_side=order.side,
                         submit_quantity=str(order.size),

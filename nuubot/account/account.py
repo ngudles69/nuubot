@@ -43,6 +43,8 @@ class TradingAccount:
         return self.place_orders(position.orders, ts_ms)
 
     def place_orders(self, orders: list[Order], ts_ms: int) -> list[OrderResult]:
+        for order in orders:
+            order.submit_ts = ts_ms
         results = self.simulator.place_orders(orders, ts_ms)
         changed: set[int] = set()
         for result in results:

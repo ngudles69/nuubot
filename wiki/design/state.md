@@ -157,6 +157,10 @@ Bot DB shape:
 - `account.bot_id` is nullable. In a one-bot DB it may be blank because the DB
   file already owns the bot. In a sweep DB it can link the account to a
   generated bot.
+- Sweep detail rows use one local account row per sweeprun and account, with
+  `acct_id = sr_<sweeprun_id>_<account_name>` and `account.name` set to the
+  configured account name. This lets each sweeprun stand on its own while still
+  preserving the configured account name.
 - `position.bot_id` and `position.acct_id` link positions to a bot/account.
 - `order.position_id` links orders to a position.
 - `fill.order_id` links fills to an order.

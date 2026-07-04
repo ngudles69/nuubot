@@ -100,6 +100,11 @@ Do not pass a mutable chart object into signalers or executors. They return
 approved display objects. This keeps strategy code independent of ECharts and
 makes display output testable without a browser.
 
+For completed sweepruns, signal markers come from persisted signal `event`
+rows. Regenerated indicator lines may be shown as current-code overlays, but
+actual entry/exit signal markers must use the run evidence stored in the sweep
+DB.
+
 ### display object
 
 Use one boring display shape:

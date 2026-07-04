@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from decimal import Decimal
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
-from nuubot.account import TradingAccount
+from nuubot.account import Order, TradingAccount
 from nuubot.bots.executors.tradebot.tradebot import TradeConfig
 from nuubot.core.dtypes import Bar
+from nuubot.core.dtypes import BotRunResult
+from nuubot.datastore import AccountRow, Datastore, OrderRow, dbname
+from nuubot.exchange import Simulator
 from nuubot.sweeps.models import SweeprunConfig
 from nuubot.sweeps.sweeprun import Sweeprun
 from nuubot.sweeps.executors import SwTradeBot
@@ -21,6 +27,7 @@ def main() -> None:
     asyncio.run(tradebot_recons_at_most_once_per_minute())
     asyncio.run(tradebot_validates_risk_score())
     sweeprun_stops_funding_when_balance_cannot_cover_trade()
+    sweeprun_persists_submit_ts_and_sweeprun_account()
 
 
 async def tradebot_one_step_loop_shape() -> None:
@@ -140,6 +147,50 @@ def sweeprun_stops_funding_when_balance_cannot_cover_trade() -> None:
     assert run._can_fund_trade()
     run.current_balance_usdc = 199.99
     assert not run._can_fund_trade()
+
+
+def sweeprun_persists_submit_ts_and_sweeprun_account() -> None:
+    with TemporaryDirectory() as root:
+        datastore = Datastore(root)
+        db = dbname(1, "sweep")
+        datastore.dbinit(db)
+        account = TradingAccount(simulator=Simulator(0, 0))
+        account.init()
+        position = account.create_position("BTCUSDT")
+        entry = Order("BTCUSDT", "buy", Decimal("1"), Decimal("100"), "entry-1")
+        tp = Order("BTCUSDT", "sell", Decimal("1"), Decimal("103"), "tp-1", "take_profit", True, "trigger", Decimal("103"), "tp", "entry-1")
+        sl = Order("BTCUSDT", "sell", Decimal("1"), Decimal("99"), "sl-1", "stop_loss", True, "trigger", Decimal("99"), "sl", "entry-1")
+        position.add_order(entry)
+        position.add_order(tp)
+        position.add_order(sl)
+        account.ingest_bbo(Bar(100, 100.0, 100.0, 100.0, 100.0, 1.0))
+        account.place_position(position, 123)
+        account.ingest_bbo(Bar(124, 103.0, 103.0, 103.0, 103.0, 1.0))
+        account.recon(124, "tick")
+
+        run = Sweeprun(str(datastore.dbpath(db)), 1, 7, "test", config=sweeprun_config())
+        tx = datastore.tx(db)
+        tx.start()
+        try:
+            run._save_botrun_ledger(
+                tx,
+                1,
+                SimpleNamespace(account=account),
+                BotRunResult(7, 0.0, 1, 0, 1, 0.0, 1, 1),
+            )
+            tx.commit()
+        except Exception:
+            tx.rollback()
+            raise
+        finally:
+            tx.close()
+
+        account_row = datastore.get(db, AccountRow, acct_id="sr_7_sgrid")
+        assert account_row.bot_id is None
+        assert account_row.name == "sgrid"
+        canceled = datastore.get(db, OrderRow, submit_cloid="sl-1")
+        assert canceled.submit_ts == 123
+        assert canceled.acct_id == "sr_7_sgrid"
 
 
 class CountingAccount(TradingAccount):

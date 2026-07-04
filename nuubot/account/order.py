@@ -61,6 +61,7 @@ class Order:
     fee: Decimal = Decimal("0")
     remaining_size: Decimal | None = None
     terminal_reason: str = ""
+    submit_ts: int = 0
     fills: list[Fill] = field(default_factory=list)
 
     def init(self) -> None:
