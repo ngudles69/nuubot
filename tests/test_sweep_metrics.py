@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from nuubot.datastore import Datastore, SweeprunRow, SweepRow, dbname
 from nuubot.server.sweepmgr import SweepManager
+from nuubot.sweeps.executors.swtradebot import _tpsl_by_position, position_window_primitives
 
 
 def main() -> None:
@@ -26,6 +27,34 @@ def main() -> None:
         assert metrics["profit_factor"] == "2.00"
         assert metrics["ev"] == "+0.25%"
         assert metrics["complete_count"] == 4
+    box_uses_tpsl_as_bounds()
+
+
+def box_uses_tpsl_as_bounds() -> None:
+    position = SimpleNamespace(
+        position_id=10,
+        opened_ts=1_000,
+        closed_ts=3_000,
+        avg_entry_px="100",
+        avg_exit_px="101",
+        side="long",
+        exit_reason="take_profit",
+    )
+    orders = [
+        SimpleNamespace(position_id=10, submit_tpsl="tp", submit_trigger_price="103", submit_price="103"),
+        SimpleNamespace(position_id=10, submit_tpsl="sl", submit_trigger_price="98", submit_price="98"),
+    ]
+
+    primitives = position_window_primitives(position, [1_000, 2_000, 3_000], _tpsl_by_position(orders)[10])
+    box = primitives[0]
+
+    assert box["type"] == "dashbox"
+    assert box["value"] == [0, 2, 103.0, 98.0]
+    assert box["tp"] == 103.0
+    assert box["sl"] == 98.0
+    assert primitives[1]["type"] == "hline"
+    assert primitives[1]["label"] == "entry"
+    assert primitives[2]["label"] == "exit"
 
 
 def row(index: int, pnl_pct: float) -> SweeprunRow:

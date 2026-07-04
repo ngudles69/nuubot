@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+from math import sqrt
 from statistics import mean, median
 import threading
 import tomllib
 from typing import Any
 
 from nuubot.datastore import AccountRow, BotrunRow, EventRow, FillRow, OrderRow, PositionRow, SweeprunRow, SweepRow, dbname
+from nuubot.core.data_loader import binance_files, month_keys
+from nuubot.core.market_data import date_ms, read_binance_file
 from nuubot.nuubot import Nuubot
+from nuubot.sweeps.executors import chart_display as executor_chart_display
+from nuubot.sweeps.signalers.signaler import chart_display as signaler_chart_display
 from nuubot.sweeps.sweep import Sweep, ensure_executor_accounts_exist
 from nuubot.sweeps.template import expand_sweep_template, generate_sweepruns
 
@@ -201,6 +207,56 @@ class SweepManager:
             "telemetry": telemetry,
         }
 
+    def detail(self, sweep_id: int, archived: bool = False) -> dict[str, Any]:
+        """Return sweep metrics plus one row per sweeprun."""
+
+        path = self._sweep_path(sweep_id, archived)
+        metrics = self.metrics(sweep_id, archived)
+        rows = self.nuubot.datastore.select(path, SweeprunRow, sweep_id=sweep_id)
+        metrics["sweepruns"] = [self._sweeprun_summary(row) for row in sorted(rows, key=lambda item: item.sweeprun_id)]
+        return metrics
+
+    def sweeprun_chart(self, sweep_id: int, sweeprun_id: int, archived: bool = False) -> dict[str, Any]:
+        """Return OHLC candles and chart display payloads for one sweeprun."""
+
+        path = self._sweep_path(sweep_id, archived)
+        row = self.nuubot.datastore.get(path, SweeprunRow, sweep_id=sweep_id, sweeprun_id=sweeprun_id)
+        config = json.loads(row.config_json or "{}")
+        sweep_run = config.get("sweeprun", {})
+        executor = config.get("executor", {})
+        symbol = str(executor.get("symbol") or "")
+        interval = str(executor.get("interval") or "")
+        start_ms = date_ms(str(sweep_run.get("start")))
+        stop_ms = date_ms(str(sweep_run.get("end")))
+        data_dir = self._workspace_path(str(sweep_run.get("data_dir") or ""))
+        candles = self._chart_candles(data_dir, symbol, interval, start_ms, stop_ms)
+        positions = self.nuubot.datastore.select(path, PositionRow, sweeprun_id=sweeprun_id)
+        orders = self.nuubot.datastore.select(path, OrderRow, sweeprun_id=sweeprun_id)
+        fills = self.nuubot.datastore.select(path, FillRow, sweeprun_id=sweeprun_id)
+        botruns = self.nuubot.datastore.select(path, BotrunRow, sweeprun_id=sweeprun_id)
+        timestamps = [item["ts_ms"] for item in candles]
+        indicators = signaler_chart_display(
+            config.get("signaler", {}),
+            lambda start, stop: self._chart_candles(data_dir, symbol, interval, start, stop),
+            start_ms,
+            stop_ms,
+        )
+        executor_display = executor_chart_display(config.get("executor", {}), positions, orders, timestamps)
+
+        return {
+            "sweep_id": sweep_id,
+            "sweeprun": self._sweeprun_summary(row),
+            "symbol": symbol,
+            "interval": interval,
+            "categories": [_chart_time(item["ts_ms"]) for item in candles],
+            "candles": [[item["open"], item["close"], item["low"], item["high"]] for item in candles],
+            "ohlcv": candles,
+            "executor_display": executor_display,
+            "indicators": indicators,
+            "summary_groups": _chart_summary_groups(row, positions, indicators),
+            "tables": _chart_tables(config, positions, orders, fills, botruns),
+        }
+
     def run(self, sweep_id: int) -> dict[str, Any]:
         if self.nuubot.datastore is None:
             raise RuntimeError("nuubot datastore missing")
@@ -211,6 +267,66 @@ class SweepManager:
             raise RuntimeError(f"sweep DB missing: {db}")
         account_names = {account.name for account in self.nuubot.config.credentials.hyperliquid.accounts}
         return Sweep(self.nuubot.datastore, sweep_id, self.result_threads, self.run_lock, account_names).run()
+
+    def _sweep_path(self, sweep_id: int, archived: bool = False) -> Path:
+        db = dbname(sweep_id, "sweep")
+        if self.nuubot.datastore.dbroot is None:
+            raise RuntimeError("datastore DB root missing")
+        path = self.nuubot.datastore.dbroot / "archived" / db if archived else self.nuubot.datastore.dbpath(db)
+        if sweep_id <= 0:
+            raise RuntimeError(f"invalid sweep_id: {sweep_id}")
+        if not path.exists():
+            raise RuntimeError(f"sweep DB missing: {db}")
+        return path
+
+    def _sweeprun_summary(self, row: SweeprunRow) -> dict[str, Any]:
+        config = json.loads(row.config_json or "{}")
+        result = json.loads(row.results_json or "{}")
+        executor = config.get("executor", {})
+        signaler = config.get("signaler", {})
+        performance = result.get("performance", {})
+        return {
+            "sweeprun_id": row.sweeprun_id,
+            "sweeprun_index": row.sweeprun_index,
+            "status": row.status,
+            "symbol": executor.get("symbol", ""),
+            "interval": executor.get("interval", ""),
+            "signaler": signaler.get("name", ""),
+            "params": signaler.get("params", {}),
+            "pnl_pct": _fmt_pct(performance.get("pnl_pct")),
+            "trades": performance.get("trades", 0),
+            "wins": performance.get("wins", 0),
+            "losses": performance.get("losses", 0),
+            "ticks": performance.get("ticks", 0),
+            "error": row.error_text or "",
+        }
+
+    def _chart_candles(self, data_dir: Path, symbol: str, interval: str, start_ms: int, stop_ms: int) -> list[dict[str, Any]]:
+        root = data_dir / symbol / interval
+        if not root.exists():
+            raise FileNotFoundError(f"missing Binance data folder: {root}")
+
+        candles = []
+        for path in binance_files(root, symbol, interval, month_keys(start_ms, stop_ms)):
+            for bar in read_binance_file(path):
+                if start_ms <= bar.ts_ms <= stop_ms:
+                    candles.append({
+                        "ts_ms": bar.ts_ms,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                    })
+        if not candles:
+            raise RuntimeError(f"no chart candles matched {symbol} {interval}")
+        return sorted(candles, key=lambda item: item["ts_ms"])
+
+    def _workspace_path(self, path: str) -> Path:
+        value = Path(path)
+        if value.is_absolute():
+            return value
+        return Path(self.nuubot.config.workspace.root) / value
 
     def parse_template(self, template: str | dict[str, Any]) -> dict[str, Any]:
         """Parse a JSON, TOML, or dict sweep template."""
@@ -364,3 +480,332 @@ def _pnl_metrics(rows: list[SweeprunRow]) -> dict[str, str]:
         "profit_factor": "inf" if profit_factor is None and gross_win > 0 else ("-" if profit_factor is None else f"{profit_factor:.2f}"),
         "ev": f"{ev:+.2f}%",
     }
+
+
+def _fmt_pct(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "-"
+    return f"{float(value):+.2f}%"
+
+
+def _fmt_count(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "-"
+    return f"{int(value):,}"
+
+
+def _fmt_money(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "-"
+    prefix = "+" if value > 0 else ""
+    return f"{prefix}{float(value):,.2f}"
+
+
+def _fmt_decimal(value: object, places: int = 2) -> str:
+    if value in (None, ""):
+        return ""
+    return f"{float(value):,.{places}f}"
+
+
+def _fmt_ratio(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "-"
+    return f"{float(value):.2f}"
+
+
+def _summary_item(label: str, value: object, title: str = "", tone: str = "") -> dict[str, str]:
+    return {"label": label, "value": str(value), "title": title, "tone": tone}
+
+
+def _chart_summary_groups(row: SweeprunRow, positions: list[PositionRow], indicators: dict[str, Any]) -> list[dict[str, Any]]:
+    config = json.loads(row.config_json or "{}")
+    result = json.loads(row.results_json or "{}")
+    sweep_run = config.get("sweeprun", {})
+    executor = config.get("executor", {})
+    signaler = config.get("signaler", {})
+    performance = result.get("performance", {})
+    trades = _trade_summary(positions)
+    pnl_pct = performance.get("pnl_pct")
+    pnl_tone = "positive" if isinstance(pnl_pct, int | float) and pnl_pct >= 0 else "negative"
+    start = str(sweep_run.get("start") or "")
+    end = str(sweep_run.get("end") or "")
+    return [
+        {
+            "title": "Info",
+            "items": [
+                _summary_item("Market", f"{executor.get('symbol', '')} {executor.get('interval', '')}".strip()),
+                _summary_item("Duration", _fmt_duration(start, end)),
+                _summary_item("Start", _fmt_config_date(start)),
+                _summary_item("End", _fmt_config_date(end)),
+                _summary_item("Signaler", signaler.get("name", ""), json.dumps(signaler.get("params", {}), sort_keys=True)),
+                _summary_item("Executor", executor.get("name", ""), json.dumps({k: v for k, v in executor.items() if k != "name"}, sort_keys=True)),
+                _summary_item("Bots", _fmt_count(performance.get("cycles"))),
+            ],
+        },
+        {
+            "title": "Performance",
+            "items": [
+                _summary_item("PnL", f"{_fmt_money(trades['net_pnl'])} ({_fmt_pct(pnl_pct)})", tone=pnl_tone),
+                _summary_item("Max DD", _fmt_pct_value(performance.get("max_drawdown_pct")), tone="negative"),
+                _summary_item("Expected Value", _fmt_money(trades["ev"])),
+                _summary_item("Avg Win", _fmt_money(trades["avg_win"]), tone="positive"),
+                _summary_item("Avg Loss", _fmt_money(trades["avg_loss"]), tone="negative"),
+            ],
+        },
+        {
+            "title": "Ratios",
+            "items": [
+                _summary_item("Profit Factor", _fmt_ratio(trades["profit_factor"])),
+                _summary_item("Trade Sharpe", _fmt_ratio(trades["trade_sharpe"])),
+                _summary_item("Payoff Ratio", _fmt_ratio(trades["payoff_ratio"])),
+            ],
+        },
+        {
+            "title": "PnL / Win Rate",
+            "items": [
+                _summary_item("PnL", f"{_fmt_money(trades['net_pnl'])} ({_fmt_pct(pnl_pct)})", tone=pnl_tone),
+                _summary_item("Win Rate", f"{_fmt_count(performance.get('wins'))}/{_fmt_count(performance.get('trades'))} ({_fmt_pct_value(trades['win_rate'])})"),
+                _summary_item("Trades", _fmt_count(performance.get("trades"))),
+                _summary_item("Signals", _fmt_count(result.get("signal_events"))),
+                _summary_item("Ticks", _fmt_count(performance.get("ticks"))),
+            ],
+        },
+        {
+            "title": "Wins",
+            "items": [
+                _summary_item("Wins", _fmt_count(performance.get("wins")), tone="positive"),
+                _summary_item("Win Streak", _fmt_count(trades["win_streak"])),
+                _summary_item("Biggest Win", _fmt_money(trades["biggest_win"]), tone="positive"),
+                _summary_item("Smallest Win", _fmt_money(trades["smallest_win"]), tone="positive"),
+                _summary_item("Avg Win", _fmt_money(trades["avg_win"]), tone="positive"),
+            ],
+        },
+        {
+            "title": "Losses",
+            "items": [
+                _summary_item("Losses", _fmt_count(performance.get("losses")), tone="negative"),
+                _summary_item("Loss Streak", _fmt_count(trades["loss_streak"])),
+                _summary_item("Biggest Loss", _fmt_money(trades["biggest_loss"]), tone="negative"),
+                _summary_item("Smallest Loss", _fmt_money(trades["smallest_loss"]), tone="negative"),
+                _summary_item("Avg Loss", _fmt_money(trades["avg_loss"]), tone="negative"),
+            ],
+        },
+    ]
+
+
+def _chart_tables(
+    config: dict[str, Any],
+    positions: list[PositionRow],
+    orders: list[OrderRow],
+    fills: list[FillRow],
+    botruns: list[BotrunRow],
+) -> list[dict[str, Any]]:
+    position_columns = ["ID", "Side", "Status", "Entry", "Exit", "Net PnL", "Opened", "Closed", "Exit"]
+    order_columns = ["ID", "Position", "Side", "Qty", "Price", "Type", "Status", "Avg Fill", "Fills", "Submit"]
+    fill_columns = ["ID", "Order", "Side", "Price", "Size", "Fee", "Closed PnL", "Time"]
+    orders_by_position: dict[int, list[OrderRow]] = {}
+    for order in orders:
+        orders_by_position.setdefault(order.position_id, []).append(order)
+    fills_by_order: dict[int, list[FillRow]] = {}
+    for fill in fills:
+        fills_by_order.setdefault(fill.order_id, []).append(fill)
+    positions_by_botrun: dict[int, list[PositionRow]] = {}
+    for position in positions:
+        if position.botrun_id is not None:
+            positions_by_botrun.setdefault(position.botrun_id, []).append(position)
+    return [
+        {
+            "key": "bots",
+            "title": "Bots",
+            "columns": position_columns,
+            "rows": [
+                _bot_tree_row(
+                    botrun,
+                    sorted(positions_by_botrun.get(botrun.botrun_id, []), key=lambda item: item.closed_ts or 0, reverse=True),
+                    orders_by_position,
+                    fills_by_order,
+                    position_columns,
+                    order_columns,
+                    fill_columns,
+                )
+                for botrun in sorted(botruns, key=lambda item: item.botrun_index, reverse=True)
+            ],
+        },
+        {
+            "key": "orders",
+            "title": "Orders",
+            "columns": order_columns,
+            "rows": [
+                _order_cells(order)
+                for order in sorted(orders, key=lambda item: item.submit_ts)
+            ],
+        },
+        {
+            "key": "fills",
+            "title": "Fills",
+            "columns": fill_columns,
+            "rows": [
+                _fill_cells(fill)
+                for fill in sorted(fills, key=lambda item: item.time)
+            ],
+        },
+        {
+            "key": "config",
+            "title": "Config",
+            "config_json": json.dumps(config, indent=2, sort_keys=True),
+        },
+    ]
+
+
+def _bot_tree_row(
+    botrun: BotrunRow,
+    positions: list[PositionRow],
+    orders_by_position: dict[int, list[OrderRow]],
+    fills_by_order: dict[int, list[FillRow]],
+    position_columns: list[str],
+    order_columns: list[str],
+    fill_columns: list[str],
+) -> dict[str, Any]:
+    result = json.loads(botrun.results_json or "{}")
+    return {
+        "botrun": {
+            "id": botrun.botrun_id,
+            "index": botrun.botrun_index,
+            "bot": botrun.bot_id,
+            "status": botrun.status,
+            "pnl": _fmt_pct(result.get("pnl_pct")),
+            "position_count": len(positions),
+        },
+        "positions": [
+            {
+                "cells": _position_cells(position),
+                "sort": _sort_values(position_columns, _position_cells(position)),
+                "orders": [
+                    {
+                        "cells": _order_cells(order),
+                        "fills": [_fill_cells(fill) for fill in sorted(fills_by_order.get(order.order_id, []), key=lambda item: item.time, reverse=True)],
+                    }
+                    for order in sorted(orders_by_position.get(position.position_id, []), key=lambda item: item.submit_ts, reverse=True)
+                ],
+            }
+            for position in positions
+        ],
+    }
+
+
+def _position_cells(position: PositionRow) -> list[Any]:
+    return [
+        position.position_id,
+        position.side or "",
+        position.status,
+        _fmt_decimal(position.avg_entry_px),
+        _fmt_decimal(position.avg_exit_px),
+        _fmt_decimal(position.net_pnl),
+        _chart_time(position.opened_ts) if position.opened_ts else "",
+        _chart_time(position.closed_ts) if position.closed_ts else "",
+        position.exit_reason or "",
+    ]
+
+
+def _order_cells(order: OrderRow) -> list[Any]:
+    return [
+        order.order_id,
+        order.position_id,
+        order.submit_side,
+        _fmt_decimal(order.submit_quantity, 6),
+        _fmt_decimal(order.submit_price),
+        order.submit_type,
+        order.status,
+        _fmt_decimal(order.avg_fill_price),
+        order.fill_count,
+        _chart_time(order.submit_ts),
+    ]
+
+
+def _fill_cells(fill: FillRow) -> list[Any]:
+    return [
+        fill.fill_id,
+        fill.order_id,
+        fill.side,
+        _fmt_decimal(fill.px),
+        _fmt_decimal(fill.sz, 6),
+        _fmt_decimal(fill.fee, 6),
+        _fmt_decimal(fill.closedPnl),
+        _chart_time(fill.time),
+    ]
+
+
+def _sort_values(columns: list[str], cells: list[Any]) -> dict[str, str]:
+    return {column: str(value) for column, value in zip(columns, cells, strict=True)}
+
+
+def _trade_summary(positions: list[PositionRow]) -> dict[str, float | int | None]:
+    pnls = [float(position.net_pnl) for position in sorted(positions, key=lambda item: item.opened_ts or 0)]
+    wins = [pnl for pnl in pnls if pnl > 0]
+    losses = [pnl for pnl in pnls if pnl < 0]
+    gross_loss = abs(sum(losses))
+    avg_win = mean(wins) if wins else None
+    avg_loss = mean(losses) if losses else None
+    return {
+        "net_pnl": sum(pnls) if pnls else None,
+        "win_rate": len(wins) / len(pnls) * 100 if pnls else None,
+        "win_streak": _streak(pnls, True),
+        "loss_streak": _streak(pnls, False),
+        "biggest_win": max(wins) if wins else None,
+        "smallest_win": min(wins) if wins else None,
+        "biggest_loss": min(losses) if losses else None,
+        "smallest_loss": max(losses) if losses else None,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "profit_factor": sum(wins) / gross_loss if gross_loss else None,
+        "payoff_ratio": avg_win / abs(avg_loss) if avg_win is not None and avg_loss not in (None, 0) else None,
+        "ev": mean(pnls) if pnls else None,
+        "trade_sharpe": _trade_sharpe(pnls),
+    }
+
+
+def _streak(values: list[float], winning: bool) -> int:
+    best = current = 0
+    for value in values:
+        hit = value > 0 if winning else value < 0
+        current = current + 1 if hit else 0
+        best = max(best, current)
+    return best
+
+
+def _trade_sharpe(values: list[float]) -> float | None:
+    if len(values) < 2:
+        return None
+    avg = mean(values)
+    variance = sum((value - avg) ** 2 for value in values) / (len(values) - 1)
+    return None if variance == 0 else avg / sqrt(variance) * sqrt(len(values))
+
+
+def _fmt_pct_value(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "-"
+    return f"{float(value):.2f}%"
+
+
+def _fmt_config_date(value: str) -> str:
+    return value.replace("T", " ")[:16] if value else "-"
+
+
+def _fmt_duration(start: str, end: str) -> str:
+    if not start or not end:
+        return "-"
+    total_minutes = max(0, (date_ms(end) - date_ms(start)) // 60000)
+    days, rem = divmod(total_minutes, 1440)
+    hours, minutes = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    return " ".join(parts) or "0m"
+
+
+def _chart_time(ts_ms: int) -> str:
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")

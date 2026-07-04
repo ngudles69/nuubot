@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from bisect import bisect_right
+from datetime import datetime, timezone
+from typing import Any, Callable
 
 import polars as pl
 
@@ -174,3 +176,79 @@ class SwEmacross:
 
     def stop(self) -> None:
         pass
+
+    @staticmethod
+    def chart_display(
+        config: dict[str, Any],
+        load_candles: Callable[[int, int], list[dict[str, Any]]],
+        start_ms: int,
+        stop_ms: int,
+    ) -> dict[str, Any]:
+        params = config.get("params", {})
+        fast = params.get("fast")
+        slow = params.get("slow")
+        interval = config.get("interval")
+        if type(fast) is not int or type(slow) is not int or type(interval) is not str:
+            return {"source": "none", "lines": [], "markers": []}
+        warmup_start_ms = start_ms - interval_ms(interval) * (max(fast, slow) + 10)
+        candles = load_candles(warmup_start_ms, stop_ms)
+        return emacross_chart_display(candles, fast, slow, start_ms)
+
+
+def emacross_chart_display(candles: list[dict[str, Any]], fast: int, slow: int, start_ms: int) -> dict[str, Any]:
+    fast_values = ema([candle["close"] for candle in candles], fast)
+    slow_values = ema([candle["close"] for candle in candles], slow)
+    active_rows = [
+        (candle, fast_value, slow_value)
+        for candle, fast_value, slow_value in zip(candles, fast_values, slow_values, strict=True)
+        if candle["ts_ms"] >= start_ms
+    ]
+    lines = [
+        {"name": f"EMA {fast}", "color": "#facc15", "data": [round_value(row[1]) for row in active_rows]},
+        {"name": f"EMA {slow}", "color": "#38bdf8", "data": [round_value(row[2]) for row in active_rows]},
+    ]
+    markers = []
+    previous_diff: float | None = None
+    active_index = -1
+    for candle, fast_value, slow_value in zip(candles, fast_values, slow_values, strict=True):
+        diff = fast_value - slow_value
+        if candle["ts_ms"] >= start_ms:
+            active_index += 1
+            if previous_diff is not None and previous_diff <= 0 and diff > 0:
+                markers.append(signal_marker(active_index, candle, "enter_long", "ema_cross_up", "#00e676"))
+            elif previous_diff is not None and previous_diff >= 0 and diff < 0:
+                markers.append(signal_marker(active_index, candle, "enter_short", "ema_cross_down", "#ff1744"))
+        previous_diff = diff
+    return {"source": "regenerated", "lines": lines, "markers": markers}
+
+
+def ema(values: list[float], period: int) -> list[float]:
+    alpha = 2 / (period + 1)
+    current: float | None = None
+    output = []
+    for value in values:
+        current = value if current is None else current + (value - current) * alpha
+        output.append(current)
+    return output
+
+
+def round_value(value: float | None) -> float | None:
+    return None if value is None else round(value, 8)
+
+
+def signal_marker(index: int, candle: dict[str, Any], kind: str, reason: str, color: str) -> dict[str, Any]:
+    high = float(candle["high"])
+    low = float(candle["low"])
+    pad = float(candle["close"]) * 0.02
+    price = high + pad if "short" in kind else low - pad
+    return {
+        "name": kind,
+        "value": [index, round_value(price)],
+        "reason": reason,
+        "time": chart_time(candle["ts_ms"]),
+        "itemStyle": {"color": "rgba(0,0,0,0)", "borderColor": color, "borderWidth": 2.4},
+    }
+
+
+def chart_time(ts_ms: int) -> str:
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")

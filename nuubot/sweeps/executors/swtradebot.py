@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from bisect import bisect_right
 from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Any
 
 from nuubot.account import Order, TradingAccount
@@ -116,6 +118,13 @@ class SwTradeBot:
             "cycle_id": self.cycle_id,
             "cycle_count": self.cycle_count,
             "last_risk_score": self.last_risk_score,
+        }
+
+    @staticmethod
+    def chart_display(positions: list[Any], orders: list[Any], timestamps: list[int]) -> dict[str, Any]:
+        return {
+            "markers": position_markers(positions, timestamps),
+            "primitives": position_primitives(positions, orders, timestamps),
         }
 
     def _result(self, ticks: int) -> BotRunResult:
@@ -290,3 +299,96 @@ class SwTradeBot:
         if entry_cash == 0:
             raise RuntimeError(f"position missing entry notional: position_id={position.position_id}")
         return float(position.pnl() / entry_cash * Decimal("100"))
+
+
+def position_markers(positions: list[Any], timestamps: list[int]) -> list[dict[str, Any]]:
+    markers: list[dict[str, Any]] = []
+    for position in positions:
+        if position.opened_ts is not None and position.avg_entry_px is not None:
+            markers.append(position_marker("entry", position.opened_ts, position.avg_entry_px, position, timestamps))
+        if position.closed_ts is not None and position.avg_exit_px is not None:
+            markers.append(position_marker("exit", position.closed_ts, position.avg_exit_px, position, timestamps))
+    return markers
+
+
+def position_primitives(positions: list[Any], orders: list[Any], timestamps: list[int]) -> list[dict[str, Any]]:
+    tpsl_by_position = _tpsl_by_position(orders)
+    primitives: list[dict[str, Any]] = []
+    for position in positions:
+        if position.opened_ts is None or position.closed_ts is None:
+            continue
+        if position.avg_entry_px is None or position.avg_exit_px is None:
+            continue
+        primitives.extend(position_window_primitives(position, timestamps, tpsl_by_position.get(position.position_id, {})))
+    return primitives
+
+
+def position_marker(kind: str, ts_ms: int, price: str, position: Any, timestamps: list[int]) -> dict[str, Any]:
+    index = bisect_right(timestamps, ts_ms) - 1
+    index = max(0, min(len(timestamps) - 1, index))
+    color = "#22c55e" if kind == "entry" else "#ef4444"
+    return {
+        "name": f"{kind} {position.side} {position.exit_reason or ''}".strip(),
+        "value": [index, float(price)],
+        "kind": kind,
+        "side": position.side,
+        "pnl": position.net_pnl,
+        "time": chart_time(ts_ms),
+        "itemStyle": {"color": "rgba(0,0,0,0)", "borderColor": color, "borderWidth": 2.6},
+    }
+
+
+def _tpsl_by_position(orders: list[Any]) -> dict[int, dict[str, float]]:
+    output: dict[int, dict[str, float]] = {}
+    for order in orders:
+        if order.submit_tpsl not in {"tp", "sl"}:
+            continue
+        price = order.submit_trigger_price or order.submit_price
+        try:
+            output.setdefault(order.position_id, {})[order.submit_tpsl] = float(price)
+        except (TypeError, ValueError):
+            continue
+    return output
+
+
+def position_window_primitives(position: Any, timestamps: list[int], tpsl: dict[str, float]) -> list[dict[str, Any]]:
+    start = bisect_right(timestamps, int(position.opened_ts)) - 1
+    end = bisect_right(timestamps, int(position.closed_ts)) - 1
+    start = max(0, min(len(timestamps) - 1, start))
+    end = max(0, min(len(timestamps) - 1, end))
+    left = min(start, end)
+    right = max(start, end)
+    entry = float(position.avg_entry_px)
+    exit = float(position.avg_exit_px)
+    bounds = [tpsl["tp"], tpsl["sl"]] if "tp" in tpsl and "sl" in tpsl else [entry, exit]
+    low = min(bounds)
+    high = max(bounds)
+    if high == low:
+        pad = max(1, abs(entry) * 0.001)
+        low -= pad
+        high += pad
+    side_color = "rgba(249,115,22,0.9)" if position.side == "short" else "rgba(20,184,166,0.9)"
+    tp_color = "rgba(34,197,94,0.95)"
+    sl_color = "rgba(239,68,68,0.95)"
+    has_tpsl = "tp" in tpsl and "sl" in tpsl
+    top_color = tp_color if has_tpsl and tpsl["tp"] > tpsl["sl"] else sl_color if has_tpsl else side_color
+    bottom_color = tp_color if has_tpsl and tpsl["tp"] < tpsl["sl"] else sl_color if has_tpsl else side_color
+    return [
+        {
+            "type": "dashbox",
+            "value": [left, right, high, low],
+            "color": side_color,
+            "top_color": top_color,
+            "bottom_color": bottom_color,
+            "side": position.side,
+            "tp": tpsl.get("tp"),
+            "sl": tpsl.get("sl"),
+            "exit_reason": position.exit_reason or "",
+        },
+        {"type": "hline", "value": [left, right, entry], "color": "rgba(148,163,184,0.82)", "label": "entry"},
+        {"type": "hline", "value": [left, right, exit], "color": "rgba(99,102,241,0.82)", "label": "exit"},
+    ]
+
+
+def chart_time(ts_ms: int) -> str:
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
